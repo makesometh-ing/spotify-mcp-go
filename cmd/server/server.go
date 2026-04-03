@@ -130,7 +130,7 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 	srv := &http.Server{Handler: mux}
 	go func() {
 		<-ctx.Done()
-		srv.Shutdown(context.Background())
+		_ = srv.Shutdown(context.Background())
 	}()
 
 	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
