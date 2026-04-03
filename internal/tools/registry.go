@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -28,11 +27,15 @@ type ToolRegistration struct {
 // up via the auth context's client ID) into every outbound request, refreshing
 // expired tokens transparently.
 func Register(srv *mcpserver.MCPServer, registrations []ToolRegistration, tokenStore store.TokenStore, spotifyClient *auth.SpotifyClient, baseURL string) {
+	var refresher *auth.TokenRefresher
+	if spotifyClient != nil {
+		refresher = auth.NewTokenRefresher(tokenStore, spotifyClient)
+	}
 	client := &http.Client{
 		Transport: &spotifyTransport{
-			store:         tokenStore,
-			spotifyClient: spotifyClient,
-			base:          http.DefaultTransport,
+			store:     tokenStore,
+			refresher: refresher,
+			base:      http.DefaultTransport,
 		},
 	}
 	for _, reg := range registrations {
@@ -41,12 +44,12 @@ func Register(srv *mcpserver.MCPServer, registrations []ToolRegistration, tokenS
 }
 
 // spotifyTransport is an http.RoundTripper that injects the Spotify access token
-// from the request context into outbound requests as a Bearer header. If the
-// token is expired, it refreshes transparently before the request.
+// from the request context into outbound requests as a Bearer header. If a
+// TokenRefresher is configured, expired tokens are refreshed transparently.
 type spotifyTransport struct {
-	store         store.TokenStore
-	spotifyClient *auth.SpotifyClient
-	base          http.RoundTripper
+	store     store.TokenStore
+	refresher *auth.TokenRefresher
+	base      http.RoundTripper
 }
 
 func (t *spotifyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -55,33 +58,25 @@ func (t *spotifyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("no authenticated client in context")
 	}
 
-	record, err := t.store.Load(r.Context(), clientID)
-	if err != nil {
-		return nil, fmt.Errorf("loading tokens for client %s: %w", clientID, err)
-	}
-	if record == nil {
-		return nil, fmt.Errorf("no tokens found for client %s", clientID)
-	}
-
-	// Transparent refresh: if Spotify token is expired and we have a refresh token,
-	// refresh before making the API call.
-	if t.spotifyClient != nil && record.SpotifyRefreshToken != "" &&
-		!record.SpotifyTokenExpiry.IsZero() && time.Now().After(record.SpotifyTokenExpiry) {
-		tokenResp, err := t.spotifyClient.RefreshToken(r.Context(), record.SpotifyRefreshToken)
+	var accessToken string
+	if t.refresher != nil {
+		token, err := t.refresher.GetAccessToken(r.Context(), clientID)
 		if err != nil {
-			return nil, fmt.Errorf("refreshing Spotify token: %w", err)
+			return nil, err
 		}
-		record.SpotifyAccessToken = tokenResp.AccessToken
-		if tokenResp.RefreshToken != "" {
-			record.SpotifyRefreshToken = tokenResp.RefreshToken
+		accessToken = token
+	} else {
+		record, err := t.store.Load(r.Context(), clientID)
+		if err != nil {
+			return nil, fmt.Errorf("loading tokens for client %s: %w", clientID, err)
 		}
-		record.SpotifyTokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-		if err := t.store.Store(r.Context(), clientID, record); err != nil {
-			return nil, fmt.Errorf("storing refreshed tokens: %w", err)
+		if record == nil {
+			return nil, fmt.Errorf("no tokens found for client %s", clientID)
 		}
+		accessToken = record.SpotifyAccessToken
 	}
 
 	r2 := r.Clone(r.Context())
-	r2.Header.Set("Authorization", "Bearer "+record.SpotifyAccessToken)
+	r2.Header.Set("Authorization", "Bearer "+accessToken)
 	return t.base.RoundTrip(r2)
 }
