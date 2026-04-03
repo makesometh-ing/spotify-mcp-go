@@ -19,11 +19,19 @@ type PendingAuth struct {
 	SpotifyVerifier string
 }
 
+// PendingCode holds the state for a pending MCP authorization code exchange.
+type PendingCode struct {
+	ClientID      string
+	CodeChallenge string
+}
+
 // HandlerConfig holds the configuration for creating a Handler.
 type HandlerConfig struct {
-	SpotifyClientID string
-	SpotifyScopes   []string
-	Store           store.TokenStore
+	SpotifyClientID      string
+	SpotifyClientSecret  string
+	SpotifyScopes        []string
+	Store                store.TokenStore
+	SpotifyTokenEndpoint string // optional override for testing
 }
 
 // Handler implements the OAuth proxy HTTP endpoints for MCP clients.
@@ -34,15 +42,27 @@ type Handler struct {
 	spotifyScopes   []string
 	store           store.TokenStore
 	pendingAuths    map[string]PendingAuth // keyed by state parameter
+	spotifyClient   *SpotifyClient
+	pendingCodes    map[string]PendingCode // keyed by MCP auth code
 }
 
 // NewHandler creates a Handler with the given configuration.
 func NewHandler(cfg HandlerConfig) *Handler {
+	endpoint := cfg.SpotifyTokenEndpoint
+	if endpoint == "" {
+		endpoint = defaultSpotifyTokenEndpoint
+	}
 	return &Handler{
 		spotifyClientID: cfg.SpotifyClientID,
 		spotifyScopes:   cfg.SpotifyScopes,
 		store:           cfg.Store,
 		pendingAuths:    make(map[string]PendingAuth),
+		spotifyClient: &SpotifyClient{
+			ClientID:      cfg.SpotifyClientID,
+			ClientSecret:  cfg.SpotifyClientSecret,
+			TokenEndpoint: endpoint,
+		},
+		pendingCodes: make(map[string]PendingCode),
 	}
 }
 
@@ -67,12 +87,89 @@ func (h *Handler) GetPendingAuth(state string) (PendingAuth, bool) {
 	return p, ok
 }
 
+// GetPendingCode retrieves a pending MCP auth code exchange.
+func (h *Handler) GetPendingCode(code string) (PendingCode, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	p, ok := h.pendingCodes[code]
+	return p, ok
+}
+
 // RegisterRoutes registers all OAuth proxy routes on the given ServeMux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", h.handleProtectedResource)
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", h.handleAuthorizationServer)
 	mux.HandleFunc("POST /register", h.handleRegister)
 	mux.HandleFunc("GET /authorize", h.handleAuthorize)
+	mux.HandleFunc("GET /callback", h.handleCallback)
+}
+
+func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "missing code parameter", http.StatusBadRequest)
+		return
+	}
+
+	state := r.URL.Query().Get("state")
+
+	h.mu.Lock()
+	pending, ok := h.pendingAuths[state]
+	if !ok {
+		h.mu.Unlock()
+		http.Error(w, "invalid state parameter", http.StatusBadRequest)
+		return
+	}
+	delete(h.pendingAuths, state)
+	h.mu.Unlock()
+
+	// Exchange the Spotify authorization code for tokens
+	callbackURI := h.getBaseURL() + "/callback"
+	tokenResp, err := h.spotifyClient.ExchangeCode(r.Context(), code, callbackURI, pending.SpotifyVerifier)
+	if err != nil {
+		http.Error(w, "spotify token exchange failed", http.StatusBadGateway)
+		return
+	}
+
+	// Update the token record with Spotify tokens
+	record, err := h.store.Load(r.Context(), pending.ClientID)
+	if err != nil || record == nil {
+		record = &store.TokenRecord{}
+	}
+	record.SpotifyAccessToken = tokenResp.AccessToken
+	record.SpotifyRefreshToken = tokenResp.RefreshToken
+	record.SpotifyTokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+
+	if err := h.store.Store(r.Context(), pending.ClientID, record); err != nil {
+		http.Error(w, "failed to store tokens", http.StatusInternalServerError)
+		return
+	}
+
+	// Generate an MCP auth code for the client to exchange at /token
+	mcpCode, err := GenerateAuthCode()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	h.mu.Lock()
+	h.pendingCodes[mcpCode] = PendingCode{
+		ClientID:      pending.ClientID,
+		CodeChallenge: pending.CodeChallenge,
+	}
+	h.mu.Unlock()
+
+	// Redirect to the MCP client's redirect_uri with the MCP auth code
+	redirectURL, err := url.Parse(pending.RedirectURI)
+	if err != nil {
+		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+		return
+	}
+	q := redirectURL.Query()
+	q.Set("code", mcpCode)
+	redirectURL.RawQuery = q.Encode()
+
+	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
 }
 
 func (h *Handler) handleProtectedResource(w http.ResponseWriter, r *http.Request) {

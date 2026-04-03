@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
@@ -261,4 +262,212 @@ func TestAuthorizeUnregisteredClientID(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// --- Callback endpoint tests ---
+
+type mockSpotify struct {
+	Server       *httptest.Server
+	LastForm     url.Values
+	ResponseCode int
+	Response     map[string]any
+	mu           sync.Mutex
+}
+
+func newMockSpotify(t *testing.T) *mockSpotify {
+	t.Helper()
+	m := &mockSpotify{
+		ResponseCode: http.StatusOK,
+		Response: map[string]any{
+			"access_token":  "spotify-access-token",
+			"refresh_token": "spotify-refresh-token",
+			"expires_in":    float64(3600),
+			"token_type":    "Bearer",
+		},
+	}
+	m.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		m.mu.Lock()
+		m.LastForm = r.PostForm
+		code := m.ResponseCode
+		resp := m.Response
+		m.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(m.Server.Close)
+	return m
+}
+
+// setupCallbackTest creates a handler with a mock Spotify token endpoint,
+// registers a client, initiates an auth flow, and returns the state parameter
+// needed to call GET /callback.
+func setupCallbackTest(t *testing.T) (ts *httptest.Server, h *Handler, mock *mockSpotify, state string, clientID string) {
+	t.Helper()
+	mock = newMockSpotify(t)
+
+	tokenStore := store.NewInMemoryTokenStore()
+	h = NewHandler(HandlerConfig{
+		SpotifyClientID:      "test-spotify-client-id",
+		SpotifyClientSecret:  "test-spotify-client-secret",
+		SpotifyScopes:        []string{"user-read-playback-state"},
+		Store:                tokenStore,
+		SpotifyTokenEndpoint: mock.Server.URL,
+	})
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	ts = httptest.NewServer(mux)
+	h.SetBaseURL(ts.URL)
+	t.Cleanup(ts.Close)
+
+	// Register a client
+	clientID = registerClient(t, ts)
+
+	// Start auth flow to create pending state
+	client := noRedirectClient()
+	u := ts.URL + "/authorize?" + url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {"http://localhost:9999/callback"},
+		"code_challenge":        {"test-challenge"},
+		"code_challenge_method": {"S256"},
+		"response_type":         {"code"},
+	}.Encode()
+	resp, err := client.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	require.NoError(t, err)
+	state = loc.Query().Get("state")
+
+	return ts, h, mock, state, clientID
+}
+
+func noRedirectClient() *http.Client {
+	return &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+}
+
+func TestCallbackExchangesCodeWithSpotify(t *testing.T) {
+	ts, h, mock, state, _ := setupCallbackTest(t)
+
+	// Capture the stored PKCE verifier before callback consumes the pending auth
+	pending, ok := h.GetPendingAuth(state)
+	require.True(t, ok)
+	expectedVerifier := pending.SpotifyVerifier
+
+	client := noRedirectClient()
+	u := ts.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {state},
+	}.Encode()
+
+	resp, err := client.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	mock.mu.Lock()
+	form := mock.LastForm
+	mock.mu.Unlock()
+
+	assert.Equal(t, "authorization_code", form.Get("grant_type"))
+	assert.Equal(t, "spotify-auth-code", form.Get("code"))
+	assert.Equal(t, ts.URL+"/callback", form.Get("redirect_uri"))
+	assert.Equal(t, "test-spotify-client-id", form.Get("client_id"))
+	assert.Equal(t, "test-spotify-client-secret", form.Get("client_secret"))
+	assert.Equal(t, expectedVerifier, form.Get("code_verifier"))
+}
+
+func TestCallbackStoresSpotifyTokens(t *testing.T) {
+	ts, h, _, state, clientID := setupCallbackTest(t)
+	client := noRedirectClient()
+
+	u := ts.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {state},
+	}.Encode()
+
+	resp, err := client.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	record, err := h.store.Load(t.Context(), clientID)
+	require.NoError(t, err)
+	assert.Equal(t, "spotify-access-token", record.SpotifyAccessToken)
+	assert.Equal(t, "spotify-refresh-token", record.SpotifyRefreshToken)
+	assert.False(t, record.SpotifyTokenExpiry.IsZero())
+}
+
+func TestCallbackRedirectsWithMCPCode(t *testing.T) {
+	ts, _, _, state, _ := setupCallbackTest(t)
+	client := noRedirectClient()
+
+	u := ts.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {state},
+	}.Encode()
+
+	resp, err := client.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusFound, resp.StatusCode)
+
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "localhost:9999", loc.Host)
+	assert.Equal(t, "/callback", loc.Path)
+	assert.NotEmpty(t, loc.Query().Get("code"), "should include MCP auth code")
+}
+
+func TestCallbackInvalidStateReturns400(t *testing.T) {
+	ts, _, _, _, _ := setupCallbackTest(t)
+
+	u := ts.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {"invalid-state"},
+	}.Encode()
+
+	resp, err := http.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestCallbackMissingCodeReturns400(t *testing.T) {
+	ts, _, _, state, _ := setupCallbackTest(t)
+
+	u := ts.URL + "/callback?" + url.Values{
+		"state": {state},
+	}.Encode()
+
+	resp, err := http.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestCallbackSpotifyFailureReturns502(t *testing.T) {
+	ts, _, mock, state, _ := setupCallbackTest(t)
+
+	mock.mu.Lock()
+	mock.ResponseCode = http.StatusBadRequest
+	mock.Response = map[string]any{"error": "invalid_grant"}
+	mock.mu.Unlock()
+
+	u := ts.URL + "/callback?" + url.Values{
+		"code":  {"bad-code"},
+		"state": {state},
+	}.Encode()
+
+	resp, err := http.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
 }
