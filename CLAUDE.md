@@ -9,14 +9,12 @@ Every issue follows this uninterrupted flow. Do not stop or ask for confirmation
 3. `linear issue start <ID>` to create branch and move to In Progress
 4. Read the PRD and issue acceptance criteria
 5. Implement (TDD, see below). Run `go mod tidy` after adding new imports.
-6. Verify all acceptance criteria pass
-7. Run the "Evidence Required" command from the issue, capture output
-8. Post evidence as a Linear comment: `linear issue comment <ID> --body "<output>"`
-9. Commit, push, create PR
-10. Merge PR: `gh pr merge <N> --squash --delete-branch`
-11. Return to main: `git checkout main && git pull`
-12. Mark done: `linear issue update <ID> --state Done`
-13. Return to step 1 for the next issue
+6. `/verify-acceptance` to verify criteria, check boxes, and post evidence
+7. Commit, push, create PR
+8. Merge PR: `gh pr merge <N> --squash --delete-branch`
+9. Return to main: `git checkout main && git pull`
+10. Mark done: `linear issue update <ID> --state Done`
+11. Return to step 1 for the next issue
 
 When acceptance criteria pass, the work is done. Commit and land immediately. The only reason to pause is a failure (tests, build, push, merge).
 
@@ -28,7 +26,7 @@ This project uses the Linear CLI for issue management. Team `SPO` in the `make-s
 
 Write tests first, then implementation. No exceptions.
 
-1. Write a failing test for the behaviour you're about to implement
+1. Write a COMPLETE (not stubbed) failing test for the behaviour you're about to implement
 2. Run it, confirm it fails
 3. Write the minimum code to make it pass
 4. Refactor if needed
