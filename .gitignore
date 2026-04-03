@@ -14,6 +14,9 @@ vendor/
 # Linear CLI
 .linear.toml
 
+# mise
+mise.toml
+
 # Claude
 .claude/
 
