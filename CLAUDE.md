@@ -10,13 +10,14 @@ Every issue follows this uninterrupted flow. Do not stop or ask for confirmation
 4. Read the PRD and issue acceptance criteria
 5. Implement (TDD, see below). Run `go mod tidy` after adding new imports.
 6. `/verify-acceptance` to verify criteria, check boxes, and post evidence
-7. Commit, push, create PR
-8. Merge PR: `gh pr merge <N> --squash --delete-branch`
-9. Return to main: `git checkout main && git pull`
-10. Mark done: `linear issue update <ID> --state Done`
-11. Return to step 1 for the next issue
+7. `/verify-prd-conformance` to check implementation against PRD. If violations found, fix them and re-run steps 6-7.
+8. Commit, push, create PR
+9. Merge PR: `gh pr merge <N> --squash --delete-branch`
+10. Return to main: `git checkout main && git pull`
+11. Mark done: `linear issue update <ID> --state Done`
+12. Return to step 1 for the next issue
 
-When acceptance criteria pass, the work is done. Commit and land immediately. The only reason to pause is a failure (tests, build, push, merge).
+When acceptance criteria pass AND PRD conformance passes, the work is done. Commit and land immediately. The only reason to pause is a failure (tests, build, push, merge, PRD violation).
 
 ## Linear Integration
 
