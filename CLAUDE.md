@@ -2,19 +2,19 @@
 
 ## Development Cycle
 
-Every issue follows this uninterrupted flow. Do not stop or ask for confirmation between steps.
+Every issue follows this uninterrupted flow. Do not stop or ask for confirmation between steps, except where noted.
 
 1. `/linear-session` to pick or confirm the issue
-2. `linear issue start <ID>` to create branch and move to In Progress
-3. Read the PRD and issue acceptance criteria
-4. Implement (TDD, see below). Run `go mod tidy` after adding new imports.
-5. Verify all acceptance criteria pass
-6. Run the "Evidence Required" command from the issue, capture output
-7. Post evidence as a Linear comment: `linear issue comment <ID> --body "<output>"`
-8. Commit, push, create PR
-9. Stash unrelated changes if working tree is dirty before merging
+2. **Check working tree**: run `git status`. If there are uncommitted or untracked changes, stop and ask the user how to handle them before continuing. Do not stash, commit, or discard without explicit instruction.
+3. `linear issue start <ID>` to create branch and move to In Progress
+4. Read the PRD and issue acceptance criteria
+5. Implement (TDD, see below). Run `go mod tidy` after adding new imports.
+6. Verify all acceptance criteria pass
+7. Run the "Evidence Required" command from the issue, capture output
+8. Post evidence as a Linear comment: `linear issue comment <ID> --body "<output>"`
+9. Commit, push, create PR
 10. Merge PR: `gh pr merge <N> --squash --delete-branch`
-11. Return to main: `git checkout main && git pull && git stash pop`
+11. Return to main: `git checkout main && git pull`
 12. Mark done: `linear issue update <ID> --state Done`
 13. Return to step 1 for the next issue
 
