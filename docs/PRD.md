@@ -1,4 +1,4 @@
-# Spotify MCP Server in Go - Design Spec
+# Spotify MCP Server in Go - PRD
 
 ## Overview
 
