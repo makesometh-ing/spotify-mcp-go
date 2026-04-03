@@ -1,0 +1,7 @@
+package: spotify
+generate:
+  client: true
+  models: true
+output: internal/spotify/generated_client.go
+output-options:
+  skip-prune: true
