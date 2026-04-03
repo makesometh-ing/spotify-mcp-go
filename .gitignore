@@ -1,0 +1,21 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+bin/
+vendor/
+
+# Environment
+.env
+
+# Linear CLI
+.linear.toml
+
+# OS
+.DS_Store
+
+# Build
+dist/
