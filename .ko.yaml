@@ -1,0 +1,4 @@
+defaultBaseImage: gcr.io/distroless/static:nonroot
+builds:
+  - id: server
+    main: ./cmd/server

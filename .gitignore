@@ -20,5 +20,8 @@ vendor/
 # OS
 .DS_Store
 
+# Database
+*.db
+
 # Build
 dist/
