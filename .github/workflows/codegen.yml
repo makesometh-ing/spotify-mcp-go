@@ -1,0 +1,47 @@
+name: Codegen
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Every Monday at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  codegen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run codegen
+        run: make codegen
+        env:
+          SPOTIFY_OPENAPI_SPEC_URL: ${{ vars.SPOTIFY_OPENAPI_SPEC_URL }}
+
+      - name: Check for changes
+        id: diff
+        run: |
+          git diff --quiet && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create PR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="codegen/update-$(date +%Y%m%d)"
+          git checkout -b "$BRANCH"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(codegen): update generated files from Spotify OpenAPI spec"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore(codegen): update generated files" \
+            --body "Automated PR from weekly codegen cron. Review the generated file diffs." \
+            --base main \
+            --head "$BRANCH"
