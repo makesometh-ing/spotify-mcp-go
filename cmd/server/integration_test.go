@@ -60,7 +60,7 @@ func newMockSpotifyOAuth(t *testing.T) *mockSpotifyOAuth {
 			"token_type":    "Bearer",
 		})
 	}))
-	t.Cleanup(m.Server.Close)
+	t.Cleanup(m.Close)
 	return m
 }
 
@@ -83,7 +83,7 @@ func newMockSpotifyAPI(t *testing.T) *mockSpotifyAPI {
 			"name": "My Playlist",
 		})
 	}))
-	t.Cleanup(m.Server.Close)
+	t.Cleanup(m.Close)
 	return m
 }
 
