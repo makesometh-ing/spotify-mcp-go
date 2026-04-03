@@ -28,10 +28,15 @@ run: build
 docker:
 	ko build ./cmd/server
 
-## lint: Run golangci-lint (prints install instructions if missing)
-lint:
-	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not found. Install: https://golangci-lint.run/welcome/install/"; exit 1; }
-	golangci-lint run ./...
+GOLANGCI_LINT_VERSION := v2.11.4
+GOLANGCI_LINT := bin/golangci-lint
+
+$(GOLANGCI_LINT):
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b bin $(GOLANGCI_LINT_VERSION)
+
+## lint: Run golangci-lint v2
+lint: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) run ./...
 
 ## clean: Remove build artifacts
 clean:
