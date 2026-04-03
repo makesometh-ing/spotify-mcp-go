@@ -1,12 +1,11 @@
 <p align="center">
-  <img src="docs/app_logo.png" alt="Spotify MCP Go" width="180" />
+  <img src="docs/app_logo.png" alt="spotify-mcp-go" width="180" />
 </p>
 
 <h1 align="center">spotify-mcp-go</h1>
 
 <p align="center">
-  A Model Context Protocol (MCP) server that gives AI assistants access to the Spotify Web API.
-  Built in Go. OAuth handled for you. Every Spotify endpoint available as an MCP tool.
+  MCP server for Spotify. Connect your AI assistant to the Spotify Web API.
 </p>
 
 <p align="center">
@@ -20,9 +19,9 @@
 
 ## What is this?
 
-This server acts as a bridge between MCP-compatible AI assistants (Claude, Codex, Cursor, etc.) and Spotify's Web API. It implements the MCP OAuth specification as a proxy to Spotify, so your AI client handles the browser login automatically.
+An MCP server that exposes the Spotify Web API as tools. It handles OAuth so your MCP client (Claude Desktop, Claude Code, Cursor, etc.) can log in via the browser and start making Spotify API calls.
 
-A code generator fetches Spotify's OpenAPI spec and generates both the Go API client and the MCP tool definitions. This runs weekly in CI to keep the tool surface current with Spotify's API.
+A code generator reads Spotify's OpenAPI spec and produces a typed Go client and MCP tool definitions. This runs weekly in CI, so when Spotify adds or changes endpoints, the tools update automatically.
 
 ## Installation
 
@@ -60,13 +59,10 @@ go install github.com/makesometh-ing/spotify-mcp-go/cmd/server@latest
 
 ### 2. Configure the server
 
-Create a `.env` file in your working directory:
-
 ```bash
 cp .env.example .env
+# Edit .env with your Spotify credentials
 ```
-
-Edit it with your Spotify credentials:
 
 ```
 SPOTIFY_CLIENT_ID=your_client_id
@@ -79,8 +75,6 @@ SPOTIFY_CLIENT_SECRET=your_client_secret
 spotify-mcp-go
 ```
 
-The server prints the MCP endpoint URL and the callback URL to register in your Spotify app.
-
 ### Environment variables
 
 | Variable | Required | Default | Description |
@@ -92,11 +86,11 @@ The server prints the MCP endpoint URL and the callback URL to register in your 
 
 ## Client configuration
 
-All clients connect via the MCP endpoint URL. The server handles OAuth automatically through the browser when the client first connects.
+Point your client at `http://localhost:8080/mcp`. OAuth happens automatically in the browser on first connect.
 
 ### Claude Desktop
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -114,24 +108,9 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 claude mcp add spotify --transport http http://localhost:8080/mcp
 ```
 
-Or add to `.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "spotify": {
-      "url": "http://localhost:8080/mcp"
-    }
-  }
-}
-```
-
 ### Cursor
 
-Open Settings > MCP Servers > Add Server:
-
-- **Name:** `spotify`
-- **URL:** `http://localhost:8080/mcp`
+Settings > MCP Servers > Add Server. Name: `spotify`, URL: `http://localhost:8080/mcp`.
 
 ### Windsurf
 
@@ -153,41 +132,26 @@ Add to your MCP configuration:
 codex mcp add spotify http://localhost:8080/mcp
 ```
 
-### Any MCP client
+### Other clients
 
-Point your client at `http://localhost:8080/mcp`. The server advertises its OAuth endpoints via standard MCP discovery (RFC 8414, RFC 9728), so any spec-compliant client will handle auth automatically.
+Any MCP client that supports Streamable HTTP transport will work. The server advertises auth endpoints via RFC 8414 / RFC 9728 discovery.
 
 ## Usage ideas
 
-Once connected, your AI assistant has access to every Spotify endpoint. Here are some things you can ask:
+Some things you can ask once connected:
 
-**Music discovery**
-- "Find me playlists similar to my Discover Weekly"
-- "What are the audio features of my top 10 tracks? Am I in a danceable mood?"
-- "Search for jazz albums released this month"
-
-**Playlist management**
-- "Create a playlist called 'Focus Mode' with 20 instrumental tracks from my library"
-- "Merge my 'Running' and 'Gym' playlists, remove duplicates"
-- "Find tracks that appear in more than 3 of my playlists"
-
-**Playback control**
-- "What's currently playing? Add it to my favorites"
-- "Skip this track and play something by the same artist"
-- "Set volume to 30% and enable shuffle"
-
-**Analysis and reporting**
-- "Show me my listening patterns this week"
-- "Which artists do I listen to the most across all my playlists?"
-- "Compare the tempo and energy of my morning vs evening playlists"
-
-**Social**
-- "Check what new releases dropped from artists I follow"
-- "Find the most popular track from each of my followed artists"
+- "What's playing right now? Add it to my favorites."
+- "Create a playlist called 'Focus Mode' with instrumental tracks from my library."
+- "Search for jazz albums released this month."
+- "Which artists show up in more than 3 of my playlists?"
+- "Merge my Running and Gym playlists, skip duplicates."
+- "What new releases dropped from artists I follow?"
+- "Compare the energy of my morning vs evening playlists."
+- "Set volume to 30% and turn on shuffle."
 
 ## Versioning
 
-This project uses [CalVer](https://calver.org/) with the format `YYYY.MM.PATCH` (e.g., `2026.04.0`). The year and month reflect when the Spotify API spec was current, and the patch number covers hotfixes within the same period.
+[CalVer](https://calver.org/): `YYYY.MM.PATCH` (e.g., `2026.04.0`).
 
 ## Development
 
