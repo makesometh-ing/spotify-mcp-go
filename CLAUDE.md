@@ -74,6 +74,10 @@ Linear ID is mandatory. Every commit ties back to a Linear issue. If no issue ex
 - Merge PR: `gh pr merge <number> --squash --delete-branch`
 - Create PR: `gh pr create --title "..." --body "..."`
 
+## Versioning
+
+CalVer `YYYY.MM.PATCH` (e.g., `2026.04.0`). Tag releases with `git tag 2026.04.0 && git push --tags`. The release workflow triggers on tag push.
+
 ## Build Commands
 
 See `Makefile` for available targets and usage.
