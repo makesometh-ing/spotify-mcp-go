@@ -1,7 +1,8 @@
 version: "2"
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+linters:
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
