@@ -14,8 +14,8 @@ vendor/
 # Linear CLI
 .linear.toml
 
-# Claude skills (local only)
-.claude/skills/
+# Claude
+.claude/
 
 # OS
 .DS_Store
