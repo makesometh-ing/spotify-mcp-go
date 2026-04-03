@@ -52,10 +52,4 @@ This project uses the Linear CLI for issue management. The team is `SPO` in the 
 
 ## Build Commands
 
-```
-make build     # Build the server binary
-make test      # Run all tests
-make codegen   # Run the code generator (CI/maintainer only)
-make docker    # Build container image with ko
-make run       # Build and run the server
-```
+See `Makefile` for available targets and usage.
