@@ -1,5 +1,29 @@
 # Development Rules
 
+## Development Cycle
+
+Every issue follows this uninterrupted flow. Do not stop or ask for confirmation between steps.
+
+1. `/linear-session` to pick or confirm the issue
+2. `linear issue start <ID>` to create branch and move to In Progress
+3. Read the PRD and issue acceptance criteria
+4. Implement (TDD, see below). Run `go mod tidy` after adding new imports.
+5. Verify all acceptance criteria pass
+6. Run the "Evidence Required" command from the issue, capture output
+7. Post evidence as a Linear comment: `linear issue comment <ID> --body "<output>"`
+8. Commit, push, create PR
+9. Stash unrelated changes if working tree is dirty before merging
+10. Merge PR: `gh pr merge <N> --squash --delete-branch`
+11. Return to main: `git checkout main && git pull && git stash pop`
+12. Mark done: `linear issue update <ID> --state Done`
+13. Return to step 1 for the next issue
+
+When acceptance criteria pass, the work is done. Commit and land immediately. The only reason to pause is a failure (tests, build, push, merge).
+
+## Linear Integration
+
+This project uses the Linear CLI for issue management. Team `SPO` in the `make-something` workspace. PRs are created via `linear issue pr` (falls back to `gh pr create` if that fails).
+
 ## TDD
 
 Write tests first, then implementation. No exceptions.
@@ -22,21 +46,35 @@ Example: `feat(auth): implement /register endpoint [SPO-12]`
 
 Linear ID is mandatory. Every commit ties back to a Linear issue. If no issue exists, create one first.
 
-## Linear Integration
-
-This project uses the Linear CLI for issue management. The team is `SPO` in the `make-something` workspace.
-
-- Never start work without a Linear issue
-- Use `linear issue start <ID>` to create a branch and move to In Progress
-- Commit messages reference the issue ID
-- PRs are created via `linear issue pr`
-
 ## Project Context
 
 - PRD is at `docs/PRD.md`. Read it before starting any work.
 - Generated code files (`generated_*.go`) are not hand-edited. Changes to generated code go through `cmd/codegen`.
 - The MCP server is HTTP-only (no stdio). This is intentional, not an oversight.
 - Token storage default path: `~/.config/spotify-mcp-go/auth/tokens.db`
+
+## Go Conventions
+
+- After adding a new import that introduces a dependency, run `go mod tidy` before running tests.
+- Run `go vet ./...` before committing.
+
+## CLI Reference
+
+### Linear CLI
+
+- List issues: `linear issue list --team SPO --state <state> --all-assignees`
+  States: `triage`, `backlog`, `unstarted`, `started`, `completed`, `canceled`
+- View issue: `linear issue view <ID>`
+- Start issue: `linear issue start <ID>`
+- Update state: `linear issue update <ID> --state <State>`
+- Create PR: `linear issue pr <ID>`
+- Comment: `linear issue comment add <ID> --body "<text>"`
+  For long/markdown bodies: `linear issue comment add <ID> --body-file <path>`
+
+### GitHub CLI
+
+- Merge PR: `gh pr merge <number> --squash --delete-branch`
+- Create PR: `gh pr create --title "..." --body "..."`
 
 ## Build Commands
 
