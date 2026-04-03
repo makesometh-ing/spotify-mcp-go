@@ -255,6 +255,63 @@ spotify-mcp-go/
 
 **Go version:** 1.26 in `go.mod`
 
+## Testing Strategy
+
+All code is developed test-first (TDD). Write tests before implementation. Integration tests are preferred over unit tests wherever possible.
+
+### Integration Tests
+
+These test real interactions between components. They are the primary test type for this project.
+
+**OAuth proxy (`internal/auth/`)**:
+- Full authorization flow end-to-end: register -> authorize -> callback -> token exchange -> authenticated MCP request -> token refresh
+- Well-known endpoint responses match the MCP OAuth spec (RFC 8414, RFC 9728)
+- `/register` returns a unique client_id per registration
+- `/authorize` redirects to Spotify's authorize endpoint with correct parameters (client_id, PKCE challenge, scopes, callback URI)
+- `/callback` exchanges the Spotify code and stores tokens keyed by client_id
+- `/token` issues MCP tokens on code exchange and refreshes on `grant_type=refresh_token`
+- Transparent Spotify token refresh: when a Spotify token is expired, the server refreshes it before calling the Spotify API, without the MCP client being aware
+- 401 returned for unauthenticated `/mcp` requests
+- 1:1 binding enforced: each client_id maps to exactly one Spotify session
+
+**Token store (`internal/auth/store/`)**:
+- SQLite store: Store, Load, Delete operations with a real SQLite database
+- Persistence: tokens survive process restart (write, stop, start, read)
+- TTL cleanup: expired registrations are removed
+- Concurrent access: multiple goroutines reading/writing different client_ids
+
+**MCP server (`cmd/server/`)**:
+- Server starts and prints callback URL and setup instructions
+- Server fails fast with clear error if `SPOTIFY_CLIENT_ID` or `SPOTIFY_CLIENT_SECRET` are missing
+- `.env` file is read, with environment variables taking precedence
+- MCP tool listing returns all generated tools with correct names and descriptions
+- MCP tool invocation dispatches to the correct Spotify API endpoint
+
+**Code generator (`cmd/codegen/`, `internal/codegen/`)**:
+- Fetches and parses a real OpenAPI spec (can use a local fixture copy of Spotify's spec)
+- Filters out deprecated endpoints correctly
+- Generated oapi-codegen client compiles and has the expected methods
+- Generated MCP tool definitions compile and register correctly
+- Tool names, descriptions, and parameters match the source OpenAPI spec
+- Scopes are correctly extracted from the spec's security definitions
+
+### Unit Tests
+
+For pure logic that doesn't need external dependencies:
+
+- PKCE code verifier/challenge generation and validation
+- MCP token generation and validation
+- OpenAPI spec parser: deprecated filtering logic, operationId extraction, parameter mapping
+- Token expiry checking logic
+
+### Test Infrastructure
+
+- Use `net/http/httptest` for HTTP integration tests (test server for the MCP server, mock server for Spotify's OAuth endpoints)
+- Use a temporary SQLite database per test (in-memory or temp file)
+- Use `testify` for assertions (already a transitive dependency via mcp-go)
+- `make test` runs all tests
+- CI runs tests on every PR
+
 ## Deployment
 
 ### Spotify App Setup (Prerequisite)
