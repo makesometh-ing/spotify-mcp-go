@@ -5,10 +5,9 @@ package tools
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 
+	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -17,46 +16,32 @@ var AddItemsToPlaylistToolScopes = []string{"playlist-modify-public", "playlist-
 
 var AddItemsToPlaylistTool = mcp.NewTool("add-items-to-playlist",
 	mcp.WithDescription("Add Items to Playlist\n\n\nAdd one or more items to a user's playlist.\n"),
-	mcp.WithString(""),
+	mcp.WithString("playlist_id", mcp.Required()),
 	mcp.WithNumber("position"),
 	mcp.WithString("uris"),
 )
 
 // NewAddItemsToPlaylistHandler creates a handler for the add-items-to-playlist tool.
-func NewAddItemsToPlaylistHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewAddItemsToPlaylistHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/playlists/{playlist_id}/items"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
-		if v := req.GetString("position", ""); v != "" {
-			q.Set("position", v)
+		playlistId := req.GetString("playlist_id", "")
+		params := &spotify.AddItemsToPlaylistParams{}
+		if v := req.GetInt("position", 0); v != 0 {
+			params.Position = &v
 		}
 		if v := req.GetString("uris", ""); v != "" {
-			q.Set("uris", v)
+			params.Uris = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.AddItemsToPlaylistWithResponse(ctx, playlistId, params, spotify.AddItemsToPlaylistJSONRequestBody{})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -70,40 +55,23 @@ var AddToQueueTool = mcp.NewTool("add-to-queue",
 )
 
 // NewAddToQueueHandler creates a handler for the add-to-queue tool.
-func NewAddToQueueHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewAddToQueueHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/queue"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
-		if v := req.GetString("uri", ""); v != "" {
-			q.Set("uri", v)
-		}
+		params := &spotify.AddToQueueParams{}
+		params.Uri = req.GetString("uri", "")
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.AddToQueueWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -112,35 +80,23 @@ var ChangePlaylistDetailsToolScopes = []string{"playlist-modify-public", "playli
 
 var ChangePlaylistDetailsTool = mcp.NewTool("change-playlist-details",
 	mcp.WithDescription("Change Playlist Details\n\n\nChange a playlist's name and public/private state. (The user must, of\ncourse, own the playlist.)\n"),
-	mcp.WithString(""),
+	mcp.WithString("playlist_id", mcp.Required()),
 )
 
 // NewChangePlaylistDetailsHandler creates a handler for the change-playlist-details tool.
-func NewChangePlaylistDetailsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewChangePlaylistDetailsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/playlists/{playlist_id}"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
+		playlistId := req.GetString("playlist_id", "")
+		resp, err := client.ChangePlaylistDetailsWithResponse(ctx, playlistId, spotify.ChangePlaylistDetailsJSONRequestBody{})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -153,37 +109,20 @@ var CheckLibraryContainsTool = mcp.NewTool("check-library-contains",
 )
 
 // NewCheckLibraryContainsHandler creates a handler for the check-library-contains tool.
-func NewCheckLibraryContainsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewCheckLibraryContainsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/library/contains"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.CheckLibraryContainsParams{}
+		params.Uris = req.GetString("uris", "")
+		resp, err := client.CheckLibraryContainsWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		q := httpReq.URL.Query()
-		if v := req.GetString("uris", ""); v != "" {
-			q.Set("uris", v)
-		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -195,31 +134,18 @@ var CreatePlaylistTool = mcp.NewTool("create-playlist",
 )
 
 // NewCreatePlaylistHandler creates a handler for the create-playlist tool.
-func NewCreatePlaylistHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewCreatePlaylistHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/playlists"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+path, nil)
+		resp, err := client.CreatePlaylistWithResponse(ctx, spotify.CreatePlaylistJSONRequestBody{})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -228,36 +154,28 @@ var GetAChapterToolScopes = []string{}
 
 var GetAChapterTool = mcp.NewTool("get-a-chapter",
 	mcp.WithDescription("Get a Chapter\n\n\nGet Spotify catalog information for a single audiobook chapter. Chapters are only available within the US, UK, Canada, Ireland, New Zealand and Australia markets.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("id", mcp.Required()),
+	mcp.WithString("market"),
 )
 
 // NewGetAChapterHandler creates a handler for the get-a-chapter tool.
-func NewGetAChapterHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAChapterHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/chapters/{id}"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAChapterParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		resp, err := client.GetAChapterWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -266,42 +184,30 @@ var GetAListOfCurrentUsersPlaylistsToolScopes = []string{"playlist-read-private"
 
 var GetAListOfCurrentUsersPlaylistsTool = mcp.NewTool("get-a-list-of-current-users-playlists",
 	mcp.WithDescription("Get Current User's Playlists\n\n\nGet a list of the playlists owned or followed by the current Spotify\nuser.\n"),
-	mcp.WithString(""),
+	mcp.WithNumber("limit"),
 	mcp.WithNumber("offset"),
 )
 
 // NewGetAListOfCurrentUsersPlaylistsHandler creates a handler for the get-a-list-of-current-users-playlists tool.
-func NewGetAListOfCurrentUsersPlaylistsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAListOfCurrentUsersPlaylistsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/playlists"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetAListOfCurrentUsersPlaylistsParams{}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetAListOfCurrentUsersPlaylistsWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		q := httpReq.URL.Query()
-		if v := req.GetString("offset", ""); v != "" {
-			q.Set("offset", v)
-		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -310,36 +216,28 @@ var GetAShowToolScopes = []string{"user-read-playback-position"}
 
 var GetAShowTool = mcp.NewTool("get-a-show",
 	mcp.WithDescription("Get Show\n\n\nGet Spotify catalog information for a single show identified by its\nunique Spotify ID.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("market"),
+	mcp.WithString("id", mcp.Required()),
 )
 
 // NewGetAShowHandler creates a handler for the get-a-show tool.
-func NewGetAShowHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAShowHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/shows/{id}"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAShowParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		resp, err := client.GetAShowWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -348,38 +246,36 @@ var GetAShowsEpisodesToolScopes = []string{"user-read-playback-position"}
 
 var GetAShowsEpisodesTool = mcp.NewTool("get-a-shows-episodes",
 	mcp.WithDescription("Get Show Episodes\n\n\nGet Spotify catalog information about an show’s episodes. Optional parameters can be used to limit the number of episodes returned.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("id", mcp.Required()),
+	mcp.WithString("market"),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetAShowsEpisodesHandler creates a handler for the get-a-shows-episodes tool.
-func NewGetAShowsEpisodesHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAShowsEpisodesHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/shows/{id}/episodes"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAShowsEpisodesParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetAShowsEpisodesWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -391,31 +287,18 @@ var GetAUsersAvailableDevicesTool = mcp.NewTool("get-a-users-available-devices",
 )
 
 // NewGetAUsersAvailableDevicesHandler creates a handler for the get-a-users-available-devices tool.
-func NewGetAUsersAvailableDevicesHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAUsersAvailableDevicesHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/devices"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		resp, err := client.GetAUsersAvailableDevicesWithResponse(ctx)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -424,36 +307,28 @@ var GetAnAlbumToolScopes = []string{}
 
 var GetAnAlbumTool = mcp.NewTool("get-an-album",
 	mcp.WithDescription("Get Album\n\n\nGet Spotify catalog information for a single album.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("id", mcp.Required()),
+	mcp.WithString("market"),
 )
 
 // NewGetAnAlbumHandler creates a handler for the get-an-album tool.
-func NewGetAnAlbumHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAnAlbumHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/albums/{id}"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAnAlbumParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		resp, err := client.GetAnAlbumWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -462,38 +337,36 @@ var GetAnAlbumsTracksToolScopes = []string{}
 
 var GetAnAlbumsTracksTool = mcp.NewTool("get-an-albums-tracks",
 	mcp.WithDescription("Get Album Tracks\n\n\nGet Spotify catalog information about an album’s tracks.\nOptional parameters can be used to limit the number of tracks returned.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("id", mcp.Required()),
+	mcp.WithString("market"),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetAnAlbumsTracksHandler creates a handler for the get-an-albums-tracks tool.
-func NewGetAnAlbumsTracksHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAnAlbumsTracksHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/albums/{id}/tracks"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAnAlbumsTracksParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetAnAlbumsTracksWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -502,35 +375,23 @@ var GetAnArtistToolScopes = []string{}
 
 var GetAnArtistTool = mcp.NewTool("get-an-artist",
 	mcp.WithDescription("Get Artist\n\n\nGet Spotify catalog information for a single artist identified by their unique Spotify ID.\n"),
-	mcp.WithString(""),
+	mcp.WithString("id", mcp.Required()),
 )
 
 // NewGetAnArtistHandler creates a handler for the get-an-artist tool.
-func NewGetAnArtistHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAnArtistHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/artists/{id}"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		resp, err := client.GetAnArtistWithResponse(ctx, id)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -539,45 +400,40 @@ var GetAnArtistsAlbumsToolScopes = []string{}
 
 var GetAnArtistsAlbumsTool = mcp.NewTool("get-an-artists-albums",
 	mcp.WithDescription("Get Artist's Albums\n\n\nGet Spotify catalog information about an artist's albums.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("id", mcp.Required()),
+	mcp.WithString("include_groups"),
+	mcp.WithString("market"),
 	mcp.WithNumber("limit"),
-	mcp.WithString(""),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetAnArtistsAlbumsHandler creates a handler for the get-an-artists-albums tool.
-func NewGetAnArtistsAlbumsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAnArtistsAlbumsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/artists/{id}/albums"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAnArtistsAlbumsParams{}
+		if v := req.GetString("include_groups", ""); v != "" {
+			params.IncludeGroups = &v
+		}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetAnArtistsAlbumsWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		q := httpReq.URL.Query()
-		if v := req.GetString("limit", ""); v != "" {
-			q.Set("limit", v)
-		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -586,36 +442,28 @@ var GetAnAudiobookToolScopes = []string{}
 
 var GetAnAudiobookTool = mcp.NewTool("get-an-audiobook",
 	mcp.WithDescription("Get an Audiobook\n\n\nGet Spotify catalog information for a single audiobook. Audiobooks are only available within the US, UK, Canada, Ireland, New Zealand and Australia markets.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("id", mcp.Required()),
+	mcp.WithString("market"),
 )
 
 // NewGetAnAudiobookHandler creates a handler for the get-an-audiobook tool.
-func NewGetAnAudiobookHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAnAudiobookHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/audiobooks/{id}"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAnAudiobookParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		resp, err := client.GetAnAudiobookWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -625,36 +473,27 @@ var GetAnEpisodeToolScopes = []string{"user-read-playback-position"}
 var GetAnEpisodeTool = mcp.NewTool("get-an-episode",
 	mcp.WithDescription("Get Episode\n\n\nGet Spotify catalog information for a single episode identified by its\nunique Spotify ID.\n"),
 	mcp.WithString("id", mcp.Required()),
-	mcp.WithString(""),
+	mcp.WithString("market"),
 )
 
 // NewGetAnEpisodeHandler creates a handler for the get-an-episode tool.
-func NewGetAnEpisodeHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAnEpisodeHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/episodes/{id}"
-		path = strings.ReplaceAll(path, "{id}", req.GetString("id", ""))
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAnEpisodeParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		resp, err := client.GetAnEpisodeWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -663,38 +502,36 @@ var GetAudiobookChaptersToolScopes = []string{}
 
 var GetAudiobookChaptersTool = mcp.NewTool("get-audiobook-chapters",
 	mcp.WithDescription("Get Audiobook Chapters\n\n\nGet Spotify catalog information about an audiobook's chapters. Audiobooks are only available within the US, UK, Canada, Ireland, New Zealand and Australia markets.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("id", mcp.Required()),
+	mcp.WithString("market"),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetAudiobookChaptersHandler creates a handler for the get-audiobook-chapters tool.
-func NewGetAudiobookChaptersHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetAudiobookChaptersHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/audiobooks/{id}/chapters"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetAudiobookChaptersParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetAudiobookChaptersWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -706,31 +543,18 @@ var GetCurrentUsersProfileTool = mcp.NewTool("get-current-users-profile",
 )
 
 // NewGetCurrentUsersProfileHandler creates a handler for the get-current-users-profile tool.
-func NewGetCurrentUsersProfileHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetCurrentUsersProfileHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		resp, err := client.GetCurrentUsersProfileWithResponse(ctx)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -745,43 +569,26 @@ var GetFollowedTool = mcp.NewTool("get-followed",
 )
 
 // NewGetFollowedHandler creates a handler for the get-followed tool.
-func NewGetFollowedHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetFollowedHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/following"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
-		if v := req.GetString("type", ""); v != "" {
-			q.Set("type", v)
-		}
+		params := &spotify.GetFollowedParams{}
+		params.Type = spotify.GetFollowedParamsType(req.GetString("type", ""))
 		if v := req.GetString("after", ""); v != "" {
-			q.Set("after", v)
+			params.After = &v
 		}
-		if v := req.GetString("limit", ""); v != "" {
-			q.Set("limit", v)
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.GetFollowedWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -790,36 +597,30 @@ var GetInformationAboutTheUsersCurrentPlaybackToolScopes = []string{"user-read-p
 
 var GetInformationAboutTheUsersCurrentPlaybackTool = mcp.NewTool("get-information-about-the-users-current-playback",
 	mcp.WithDescription("Get Playback State\n\n\nGet information about the user’s current playback state, including track or episode, progress, and active device.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("market"),
+	mcp.WithString("additional_types"),
 )
 
 // NewGetInformationAboutTheUsersCurrentPlaybackHandler creates a handler for the get-information-about-the-users-current-playback tool.
-func NewGetInformationAboutTheUsersCurrentPlaybackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetInformationAboutTheUsersCurrentPlaybackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetInformationAboutTheUsersCurrentPlaybackParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		if v := req.GetString("additional_types", ""); v != "" {
+			params.AdditionalTypes = &v
+		}
+		resp, err := client.GetInformationAboutTheUsersCurrentPlaybackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -828,44 +629,36 @@ var GetPlaylistToolScopes = []string{}
 
 var GetPlaylistTool = mcp.NewTool("get-playlist",
 	mcp.WithDescription("Get Playlist\n\n\nGet a playlist owned by a Spotify user.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("playlist_id", mcp.Required()),
+	mcp.WithString("market"),
 	mcp.WithString("fields"),
-	mcp.WithString(""),
+	mcp.WithString("additional_types"),
 )
 
 // NewGetPlaylistHandler creates a handler for the get-playlist tool.
-func NewGetPlaylistHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetPlaylistHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/playlists/{playlist_id}"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		playlistId := req.GetString("playlist_id", "")
+		params := &spotify.GetPlaylistParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
 		}
-
-		q := httpReq.URL.Query()
 		if v := req.GetString("fields", ""); v != "" {
-			q.Set("fields", v)
+			params.Fields = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if v := req.GetString("additional_types", ""); v != "" {
+			params.AdditionalTypes = &v
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.GetPlaylistWithResponse(ctx, playlistId, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -874,35 +667,23 @@ var GetPlaylistCoverToolScopes = []string{}
 
 var GetPlaylistCoverTool = mcp.NewTool("get-playlist-cover",
 	mcp.WithDescription("Get Playlist Cover Image\n\n\nGet the current image associated with a specific playlist.\n"),
-	mcp.WithString(""),
+	mcp.WithString("playlist_id", mcp.Required()),
 )
 
 // NewGetPlaylistCoverHandler creates a handler for the get-playlist-cover tool.
-func NewGetPlaylistCoverHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetPlaylistCoverHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/playlists/{playlist_id}/images"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		playlistId := req.GetString("playlist_id", "")
+		resp, err := client.GetPlaylistCoverWithResponse(ctx, playlistId)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -911,46 +692,44 @@ var GetPlaylistsItemsToolScopes = []string{"playlist-read-private"}
 
 var GetPlaylistsItemsTool = mcp.NewTool("get-playlists-items",
 	mcp.WithDescription("Get Playlist Items\n\n\nGet full details of the items of a playlist owned by a Spotify user.\n\n**Note**: This endpoint is only accessible for playlists owned by the current user or playlists the user is a collaborator of. A `403 Forbidden` status code will be returned if the user is neither the owner nor a collaborator of the playlist.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("playlist_id", mcp.Required()),
+	mcp.WithString("market"),
 	mcp.WithString("fields"),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
+	mcp.WithString("additional_types"),
 )
 
 // NewGetPlaylistsItemsHandler creates a handler for the get-playlists-items tool.
-func NewGetPlaylistsItemsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetPlaylistsItemsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/playlists/{playlist_id}/items"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		playlistId := req.GetString("playlist_id", "")
+		params := &spotify.GetPlaylistsItemsParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
 		}
-
-		q := httpReq.URL.Query()
 		if v := req.GetString("fields", ""); v != "" {
-			q.Set("fields", v)
+			params.Fields = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		if v := req.GetString("additional_types", ""); v != "" {
+			params.AdditionalTypes = &v
+		}
+		resp, err := client.GetPlaylistsItemsWithResponse(ctx, playlistId, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -962,31 +741,18 @@ var GetQueueTool = mcp.NewTool("get-queue",
 )
 
 // NewGetQueueHandler creates a handler for the get-queue tool.
-func NewGetQueueHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetQueueHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/queue"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		resp, err := client.GetQueueWithResponse(ctx)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1001,43 +767,28 @@ var GetRecentlyPlayedTool = mcp.NewTool("get-recently-played",
 )
 
 // NewGetRecentlyPlayedHandler creates a handler for the get-recently-played tool.
-func NewGetRecentlyPlayedHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetRecentlyPlayedHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/recently-played"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetRecentlyPlayedParams{}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("after", 0); v != 0 {
+			params.After = &v
+		}
+		if v := req.GetInt("before", 0); v != 0 {
+			params.Before = &v
+		}
+		resp, err := client.GetRecentlyPlayedWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		q := httpReq.URL.Query()
-		if v := req.GetString("limit", ""); v != "" {
-			q.Set("limit", v)
-		}
-		if v := req.GetString("after", ""); v != "" {
-			q.Set("after", v)
-		}
-		if v := req.GetString("before", ""); v != "" {
-			q.Set("before", v)
-		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1046,36 +797,30 @@ var GetTheUsersCurrentlyPlayingTrackToolScopes = []string{"user-read-currently-p
 
 var GetTheUsersCurrentlyPlayingTrackTool = mcp.NewTool("get-the-users-currently-playing-track",
 	mcp.WithDescription("Get Currently Playing Track\n\n\nGet the object currently being played on the user's Spotify account.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("market"),
+	mcp.WithString("additional_types"),
 )
 
 // NewGetTheUsersCurrentlyPlayingTrackHandler creates a handler for the get-the-users-currently-playing-track tool.
-func NewGetTheUsersCurrentlyPlayingTrackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetTheUsersCurrentlyPlayingTrackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/currently-playing"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetTheUsersCurrentlyPlayingTrackParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		if v := req.GetString("additional_types", ""); v != "" {
+			params.AdditionalTypes = &v
+		}
+		resp, err := client.GetTheUsersCurrentlyPlayingTrackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1085,36 +830,27 @@ var GetTrackToolScopes = []string{}
 var GetTrackTool = mcp.NewTool("get-track",
 	mcp.WithDescription("Get Track\n\n\nGet Spotify catalog information for a single track identified by its\nunique Spotify ID.\n"),
 	mcp.WithString("id", mcp.Required()),
-	mcp.WithString(""),
+	mcp.WithString("market"),
 )
 
 // NewGetTrackHandler creates a handler for the get-track tool.
-func NewGetTrackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetTrackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/tracks/{id}"
-		path = strings.ReplaceAll(path, "{id}", req.GetString("id", ""))
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		id := req.GetString("id", "")
+		params := &spotify.GetTrackParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		resp, err := client.GetTrackWithResponse(ctx, id, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1123,37 +859,34 @@ var GetUsersSavedAlbumsToolScopes = []string{"user-library-read"}
 
 var GetUsersSavedAlbumsTool = mcp.NewTool("get-users-saved-albums",
 	mcp.WithDescription("Get User's Saved Albums\n\n\nGet a list of the albums saved in the current Spotify user's 'Your Music' library.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
+	mcp.WithString("market"),
 )
 
 // NewGetUsersSavedAlbumsHandler creates a handler for the get-users-saved-albums tool.
-func NewGetUsersSavedAlbumsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetUsersSavedAlbumsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/albums"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetUsersSavedAlbumsParams{}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		resp, err := client.GetUsersSavedAlbumsWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1162,36 +895,30 @@ var GetUsersSavedAudiobooksToolScopes = []string{"user-library-read"}
 
 var GetUsersSavedAudiobooksTool = mcp.NewTool("get-users-saved-audiobooks",
 	mcp.WithDescription("Get User's Saved Audiobooks\n\n\nGet a list of the audiobooks saved in the current Spotify user's 'Your Music' library.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetUsersSavedAudiobooksHandler creates a handler for the get-users-saved-audiobooks tool.
-func NewGetUsersSavedAudiobooksHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetUsersSavedAudiobooksHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/audiobooks"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetUsersSavedAudiobooksParams{}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetUsersSavedAudiobooksWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1200,37 +927,34 @@ var GetUsersSavedEpisodesToolScopes = []string{"user-library-read", "user-read-p
 
 var GetUsersSavedEpisodesTool = mcp.NewTool("get-users-saved-episodes",
 	mcp.WithDescription("Get User's Saved Episodes\n\n\nGet a list of the episodes saved in the current Spotify user's library.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("market"),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetUsersSavedEpisodesHandler creates a handler for the get-users-saved-episodes tool.
-func NewGetUsersSavedEpisodesHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetUsersSavedEpisodesHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/episodes"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetUsersSavedEpisodesParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetUsersSavedEpisodesWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1239,36 +963,30 @@ var GetUsersSavedShowsToolScopes = []string{"user-library-read"}
 
 var GetUsersSavedShowsTool = mcp.NewTool("get-users-saved-shows",
 	mcp.WithDescription("Get User's Saved Shows\n\n\nGet a list of shows saved in the current Spotify user's library. Optional parameters can be used to limit the number of shows returned.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetUsersSavedShowsHandler creates a handler for the get-users-saved-shows tool.
-func NewGetUsersSavedShowsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetUsersSavedShowsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/shows"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetUsersSavedShowsParams{}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetUsersSavedShowsWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1277,37 +995,34 @@ var GetUsersSavedTracksToolScopes = []string{"user-library-read"}
 
 var GetUsersSavedTracksTool = mcp.NewTool("get-users-saved-tracks",
 	mcp.WithDescription("Get User's Saved Tracks\n\n\nGet a list of the songs saved in the current Spotify user's 'Your Music' library.\n"),
-	mcp.WithString(""),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithString("market"),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetUsersSavedTracksHandler creates a handler for the get-users-saved-tracks tool.
-func NewGetUsersSavedTracksHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetUsersSavedTracksHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/tracks"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
+		params := &spotify.GetUsersSavedTracksParams{}
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
+		}
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetUsersSavedTracksWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1318,43 +1033,34 @@ var GetUsersTopArtistsAndTracksTool = mcp.NewTool("get-users-top-artists-and-tra
 	mcp.WithDescription("Get User's Top Items\n\n\nGet the current user's top artists or tracks based on calculated affinity.\n"),
 	mcp.WithString("type", mcp.Required()),
 	mcp.WithString("time_range"),
-	mcp.WithString(""),
-	mcp.WithString(""),
+	mcp.WithNumber("limit"),
+	mcp.WithNumber("offset"),
 )
 
 // NewGetUsersTopArtistsAndTracksHandler creates a handler for the get-users-top-artists-and-tracks tool.
-func NewGetUsersTopArtistsAndTracksHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewGetUsersTopArtistsAndTracksHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/top/{type}"
-		path = strings.ReplaceAll(path, "{type}", req.GetString("type", ""))
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
+		typeParam := spotify.GetUsersTopArtistsAndTracksParamsType(req.GetString("type", ""))
+		params := &spotify.GetUsersTopArtistsAndTracksParams{}
 		if v := req.GetString("time_range", ""); v != "" {
-			q.Set("time_range", v)
+			params.TimeRange = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
+		}
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
+		}
+		resp, err := client.GetUsersTopArtistsAndTracksWithResponse(ctx, typeParam, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1367,37 +1073,22 @@ var PauseAUsersPlaybackTool = mcp.NewTool("pause-a-users-playback",
 )
 
 // NewPauseAUsersPlaybackHandler creates a handler for the pause-a-users-playback tool.
-func NewPauseAUsersPlaybackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewPauseAUsersPlaybackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/pause"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
+		params := &spotify.PauseAUsersPlaybackParams{}
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.PauseAUsersPlaybackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1406,35 +1097,23 @@ var RemoveItemsPlaylistToolScopes = []string{"playlist-modify-public", "playlist
 
 var RemoveItemsPlaylistTool = mcp.NewTool("remove-items-playlist",
 	mcp.WithDescription("Remove Playlist Items\n\n\nRemove one or more items from a user's playlist.\n"),
-	mcp.WithString(""),
+	mcp.WithString("playlist_id", mcp.Required()),
 )
 
 // NewRemoveItemsPlaylistHandler creates a handler for the remove-items-playlist tool.
-func NewRemoveItemsPlaylistHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewRemoveItemsPlaylistHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/playlists/{playlist_id}/items"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "DELETE", baseURL+path, nil)
+		playlistId := req.GetString("playlist_id", "")
+		resp, err := client.RemoveItemsPlaylistWithResponse(ctx, playlistId, spotify.RemoveItemsPlaylistJSONRequestBody{})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1447,37 +1126,20 @@ var RemoveLibraryItemsTool = mcp.NewTool("remove-library-items",
 )
 
 // NewRemoveLibraryItemsHandler creates a handler for the remove-library-items tool.
-func NewRemoveLibraryItemsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewRemoveLibraryItemsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/library"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "DELETE", baseURL+path, nil)
+		params := &spotify.RemoveLibraryItemsParams{}
+		params.Uris = req.GetString("uris", "")
+		resp, err := client.RemoveLibraryItemsWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		q := httpReq.URL.Query()
-		if v := req.GetString("uris", ""); v != "" {
-			q.Set("uris", v)
-		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1486,42 +1148,28 @@ var ReorderOrReplacePlaylistsItemsToolScopes = []string{"playlist-modify-public"
 
 var ReorderOrReplacePlaylistsItemsTool = mcp.NewTool("reorder-or-replace-playlists-items",
 	mcp.WithDescription("Update Playlist Items\n\n\nEither reorder or replace items in a playlist depending on the request's parameters.\nTo reorder items, include `range_start`, `insert_before`, `range_length` and `snapshot_id` in the request's body.\nTo replace items, include `uris` as either a query parameter or in the request's body.\nReplacing items in a playlist will overwrite its existing items. This operation can be used for replacing or clearing items in a playlist.\n<br/>\n**Note**: Replace and reorder are mutually exclusive operations which share the same endpoint, but have different parameters.\nThese operations can't be applied together in a single request.\n"),
-	mcp.WithString(""),
+	mcp.WithString("playlist_id", mcp.Required()),
 	mcp.WithString("uris"),
 )
 
 // NewReorderOrReplacePlaylistsItemsHandler creates a handler for the reorder-or-replace-playlists-items tool.
-func NewReorderOrReplacePlaylistsItemsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewReorderOrReplacePlaylistsItemsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/playlists/{playlist_id}/items"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
+		playlistId := req.GetString("playlist_id", "")
+		params := &spotify.ReorderOrReplacePlaylistsItemsParams{}
 		if v := req.GetString("uris", ""); v != "" {
-			q.Set("uris", v)
+			params.Uris = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.ReorderOrReplacePlaylistsItemsWithResponse(ctx, playlistId, params, spotify.ReorderOrReplacePlaylistsItemsJSONRequestBody{})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1534,37 +1182,20 @@ var SaveLibraryItemsTool = mcp.NewTool("save-library-items",
 )
 
 // NewSaveLibraryItemsHandler creates a handler for the save-library-items tool.
-func NewSaveLibraryItemsHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewSaveLibraryItemsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/library"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
+		params := &spotify.SaveLibraryItemsParams{}
+		params.Uris = req.GetString("uris", "")
+		resp, err := client.SaveLibraryItemsWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		q := httpReq.URL.Query()
-		if v := req.GetString("uris", ""); v != "" {
-			q.Set("uris", v)
-		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1575,56 +1206,48 @@ var SearchTool = mcp.NewTool("search",
 	mcp.WithDescription("Search for Item\n\n\nGet Spotify catalog information about albums, artists, playlists, tracks, shows, episodes or audiobooks\nthat match a keyword string. Audiobooks are only available within the US, UK, Canada, Ireland, New Zealand and Australia markets.\n"),
 	mcp.WithString("q", mcp.Required()),
 	mcp.WithArray("type", mcp.Required()),
-	mcp.WithString(""),
+	mcp.WithString("market"),
 	mcp.WithNumber("limit"),
 	mcp.WithNumber("offset"),
 	mcp.WithString("include_external"),
 )
 
 // NewSearchHandler creates a handler for the search tool.
-func NewSearchHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewSearchHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/search"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		params := &spotify.SearchParams{}
+		params.Q = req.GetString("q", "")
+		{
+			raw := req.GetString("type", "")
+			for _, s := range strings.Split(raw, ",") {
+				if t := strings.TrimSpace(s); t != "" {
+					params.Type = append(params.Type, spotify.SearchParamsType(t))
+				}
+			}
 		}
-
-		q := httpReq.URL.Query()
-		if v := req.GetString("q", ""); v != "" {
-			q.Set("q", v)
+		if v := req.GetString("market", ""); v != "" {
+			params.Market = &v
 		}
-		if v := req.GetString("type", ""); v != "" {
-			q.Set("type", v)
+		if v := req.GetInt("limit", 0); v != 0 {
+			params.Limit = &v
 		}
-		if v := req.GetString("limit", ""); v != "" {
-			q.Set("limit", v)
-		}
-		if v := req.GetString("offset", ""); v != "" {
-			q.Set("offset", v)
+		if v := req.GetInt("offset", 0); v != 0 {
+			params.Offset = &v
 		}
 		if v := req.GetString("include_external", ""); v != "" {
-			q.Set("include_external", v)
+			ev := spotify.SearchParamsIncludeExternal(v)
+			params.IncludeExternal = &ev
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.SearchWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1638,40 +1261,23 @@ var SeekToPositionInCurrentlyPlayingTrackTool = mcp.NewTool("seek-to-position-in
 )
 
 // NewSeekToPositionInCurrentlyPlayingTrackHandler creates a handler for the seek-to-position-in-currently-playing-track tool.
-func NewSeekToPositionInCurrentlyPlayingTrackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewSeekToPositionInCurrentlyPlayingTrackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/seek"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
-		if v := req.GetString("position_ms", ""); v != "" {
-			q.Set("position_ms", v)
-		}
+		params := &spotify.SeekToPositionInCurrentlyPlayingTrackParams{}
+		params.PositionMs = req.GetInt("position_ms", 0)
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.SeekToPositionInCurrentlyPlayingTrackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1685,40 +1291,23 @@ var SetRepeatModeOnUsersPlaybackTool = mcp.NewTool("set-repeat-mode-on-users-pla
 )
 
 // NewSetRepeatModeOnUsersPlaybackHandler creates a handler for the set-repeat-mode-on-users-playback tool.
-func NewSetRepeatModeOnUsersPlaybackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewSetRepeatModeOnUsersPlaybackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/repeat"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
-		if v := req.GetString("state", ""); v != "" {
-			q.Set("state", v)
-		}
+		params := &spotify.SetRepeatModeOnUsersPlaybackParams{}
+		params.State = req.GetString("state", "")
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.SetRepeatModeOnUsersPlaybackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1732,40 +1321,23 @@ var SetVolumeForUsersPlaybackTool = mcp.NewTool("set-volume-for-users-playback",
 )
 
 // NewSetVolumeForUsersPlaybackHandler creates a handler for the set-volume-for-users-playback tool.
-func NewSetVolumeForUsersPlaybackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewSetVolumeForUsersPlaybackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/volume"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
-		if v := req.GetString("volume_percent", ""); v != "" {
-			q.Set("volume_percent", v)
-		}
+		params := &spotify.SetVolumeForUsersPlaybackParams{}
+		params.VolumePercent = req.GetInt("volume_percent", 0)
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.SetVolumeForUsersPlaybackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1778,37 +1350,22 @@ var SkipUsersPlaybackToNextTrackTool = mcp.NewTool("skip-users-playback-to-next-
 )
 
 // NewSkipUsersPlaybackToNextTrackHandler creates a handler for the skip-users-playback-to-next-track tool.
-func NewSkipUsersPlaybackToNextTrackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewSkipUsersPlaybackToNextTrackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/next"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
+		params := &spotify.SkipUsersPlaybackToNextTrackParams{}
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.SkipUsersPlaybackToNextTrackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1821,37 +1378,22 @@ var SkipUsersPlaybackToPreviousTrackTool = mcp.NewTool("skip-users-playback-to-p
 )
 
 // NewSkipUsersPlaybackToPreviousTrackHandler creates a handler for the skip-users-playback-to-previous-track tool.
-func NewSkipUsersPlaybackToPreviousTrackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewSkipUsersPlaybackToPreviousTrackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/previous"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
+		params := &spotify.SkipUsersPlaybackToPreviousTrackParams{}
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.SkipUsersPlaybackToPreviousTrackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1864,37 +1406,22 @@ var StartAUsersPlaybackTool = mcp.NewTool("start-a-users-playback",
 )
 
 // NewStartAUsersPlaybackHandler creates a handler for the start-a-users-playback tool.
-func NewStartAUsersPlaybackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewStartAUsersPlaybackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/play"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
+		params := &spotify.StartAUsersPlaybackParams{}
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.StartAUsersPlaybackWithResponse(ctx, params, spotify.StartAUsersPlaybackJSONRequestBody{})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1908,40 +1435,23 @@ var ToggleShuffleForUsersPlaybackTool = mcp.NewTool("toggle-shuffle-for-users-pl
 )
 
 // NewToggleShuffleForUsersPlaybackHandler creates a handler for the toggle-shuffle-for-users-playback tool.
-func NewToggleShuffleForUsersPlaybackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewToggleShuffleForUsersPlaybackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player/shuffle"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		q := httpReq.URL.Query()
-		if v := req.GetString("state", ""); v != "" {
-			q.Set("state", v)
-		}
+		params := &spotify.ToggleShuffleForUsersPlaybackParams{}
+		params.State = req.GetString("state", "") == "true"
 		if v := req.GetString("device_id", ""); v != "" {
-			q.Set("device_id", v)
+			params.DeviceId = &v
 		}
-		httpReq.URL.RawQuery = q.Encode()
-
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		resp, err := client.ToggleShuffleForUsersPlaybackWithResponse(ctx, params)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1953,31 +1463,18 @@ var TransferAUsersPlaybackTool = mcp.NewTool("transfer-a-users-playback",
 )
 
 // NewTransferAUsersPlaybackHandler creates a handler for the transfer-a-users-playback tool.
-func NewTransferAUsersPlaybackHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewTransferAUsersPlaybackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/me/player"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
+		resp, err := client.TransferAUsersPlaybackWithResponse(ctx, spotify.TransferAUsersPlaybackJSONRequestBody{})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 
@@ -1986,35 +1483,23 @@ var UploadCustomPlaylistCoverToolScopes = []string{"ugc-image-upload", "playlist
 
 var UploadCustomPlaylistCoverTool = mcp.NewTool("upload-custom-playlist-cover",
 	mcp.WithDescription("Add Custom Playlist Cover Image\n\n\nReplace the image used to represent a specific playlist.\n"),
-	mcp.WithString(""),
+	mcp.WithString("playlist_id", mcp.Required()),
 )
 
 // NewUploadCustomPlaylistCoverHandler creates a handler for the upload-custom-playlist-cover tool.
-func NewUploadCustomPlaylistCoverHandler(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func NewUploadCustomPlaylistCoverHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := "/playlists/{playlist_id}/images"
-
-		httpReq, err := http.NewRequestWithContext(ctx, "PUT", baseURL+path, nil)
+		playlistId := req.GetString("playlist_id", "")
+		resp, err := client.UploadCustomPlaylistCoverWithBodyWithResponse(ctx, playlistId, "image/jpeg", strings.NewReader(req.GetString("body", "")))
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		resp, err := httpClient.Do(httpReq)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 

@@ -37,7 +37,13 @@ func GenerateTools(ops []Operation, packageName string) (string, error) {
 		PackageName: packageName,
 	}
 	for _, op := range sorted {
-		data.Tools = append(data.Tools, newToolData(op))
+		td := newToolData(op)
+		data.Tools = append(data.Tools, td)
+		for _, p := range td.QueryParams {
+			if p.MCPType == "Array" {
+				data.HasArrayParams = true
+			}
+		}
 	}
 
 	tmpl, err := template.New("tools").Funcs(template.FuncMap{
@@ -60,12 +66,14 @@ func GenerateTools(ops []Operation, packageName string) (string, error) {
 }
 
 type toolsTemplateData struct {
-	PackageName string
-	Tools       []toolData
+	PackageName    string
+	Tools          []toolData
+	HasArrayParams bool
 }
 
 type toolData struct {
 	OperationID string
+	CamelName   string
 	VarName     string
 	HandlerName string
 	Description string
@@ -73,6 +81,8 @@ type toolData struct {
 	Method      string
 	PathPattern string
 	HasBody     bool
+	HasJSONBody bool // true if body is application/json (use JSONRequestBody type)
+	BodyCT      string
 	Params      []toolParamData
 	PathParams  []toolParamData
 	QueryParams []toolParamData
@@ -80,15 +90,19 @@ type toolData struct {
 
 type toolParamData struct {
 	Name        string
+	GoName      string // camelCase for local vars (e.g., "playlist_id" -> "playlistId")
+	PascalName  string // PascalCase for struct fields (e.g., "playlist_id" -> "PlaylistId")
 	MCPType     string
 	Required    bool
 	Description string
+	HasEnum     bool
 }
 
 func newToolData(op Operation) toolData {
 	camel := kebabToCamel(op.OperationID)
 	td := toolData{
 		OperationID: op.OperationID,
+		CamelName:   camel,
 		VarName:     camel + "Tool",
 		HandlerName: "New" + camel + "Handler",
 		Description: toolDescription(op.Summary, op.Description),
@@ -96,14 +110,19 @@ func newToolData(op Operation) toolData {
 		Method:      op.Method,
 		PathPattern: op.Path,
 		HasBody:     op.RequestBodyRef != "",
+		HasJSONBody: op.RequestBodyRef != "" && (op.BodyContentType == "application/json" || op.BodyContentType == ""),
+		BodyCT:      op.BodyContentType,
 	}
 
 	for _, p := range op.Parameters {
 		pd := toolParamData{
 			Name:        p.Name,
+			GoName:      snakeToCamel(p.Name),
+			PascalName:  snakeToPascal(p.Name),
 			MCPType:     mcpType(p.Type),
 			Required:    p.Required,
 			Description: p.Description,
+			HasEnum:     p.HasEnum,
 		}
 		td.Params = append(td.Params, pd)
 		switch p.In {
@@ -115,6 +134,45 @@ func newToolData(op Operation) toolData {
 	}
 
 	return td
+}
+
+// goReserved is the set of Go keywords and predeclared identifiers that can't
+// be used as variable names.
+var goReserved = map[string]bool{
+	"break": true, "case": true, "chan": true, "const": true, "continue": true,
+	"default": true, "defer": true, "else": true, "fallthrough": true, "for": true,
+	"func": true, "go": true, "goto": true, "if": true, "import": true,
+	"interface": true, "map": true, "package": true, "range": true, "return": true,
+	"select": true, "struct": true, "switch": true, "type": true, "var": true,
+}
+
+// snakeToCamel converts snake_case to camelCase (first letter lowercase)
+// for use as local variable names. e.g., "playlist_id" -> "playlistId".
+// Appends an underscore suffix if the result is a Go reserved keyword.
+func snakeToCamel(s string) string {
+	parts := strings.Split(s, "_")
+	for i := 1; i < len(parts); i++ {
+		if len(parts[i]) > 0 {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	result := strings.Join(parts, "")
+	if goReserved[result] {
+		result += "Param"
+	}
+	return result
+}
+
+// snakeToPascal converts snake_case to PascalCase (first letter uppercase)
+// for use as exported struct field names. e.g., "playlist_id" -> "PlaylistId".
+func snakeToPascal(s string) string {
+	parts := strings.Split(s, "_")
+	for i, p := range parts {
+		if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, "")
 }
 
 func kebabToCamel(s string) string {
@@ -157,11 +215,12 @@ package {{.PackageName}}
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
+{{- if .HasArrayParams}}
 	"strings"
+{{- end}}
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
 )
 
 {{- range .Tools}}
@@ -177,47 +236,67 @@ var {{.VarName}} = mcp.NewTool({{quote .OperationID}},
 )
 
 // {{.HandlerName}} creates a handler for the {{.OperationID}} tool.
-func {{.HandlerName}}(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func {{.HandlerName}}(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := {{quote .PathPattern}}
+{{- $tool := .}}
 {{- range .PathParams}}
-		path = strings.ReplaceAll(path, "{ {{- .Name -}} }", req.GetString({{quote .Name}}, ""))
+{{- if .HasEnum}}
+		{{.GoName}} := spotify.{{$tool.CamelName}}Params{{.PascalName}}(req.GetString({{quote .Name}}, ""))
+{{- else}}
+		{{.GoName}} := req.GetString({{quote .Name}}, "")
 {{- end}}
-
-		httpReq, err := http.NewRequestWithContext(ctx, {{quote .Method}}, baseURL+path, {{if .HasBody}}strings.NewReader(req.GetString("body", "{}")){{else}}nil{{end}})
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-{{- if .HasBody}}
-		httpReq.Header.Set("Content-Type", "application/json")
 {{- end}}
 {{- if .QueryParams}}
-
-		q := httpReq.URL.Query()
+		params := &spotify.{{$tool.CamelName}}Params{}
 {{- range .QueryParams}}
+{{- if and .Required .HasEnum (eq .MCPType "Array")}}
+		{
+			raw := req.GetString({{quote .Name}}, "")
+			for _, s := range strings.Split(raw, ",") {
+				if t := strings.TrimSpace(s); t != "" {
+					params.{{.PascalName}} = append(params.{{.PascalName}}, spotify.{{$tool.CamelName}}Params{{.PascalName}}(t))
+				}
+			}
+		}
+{{- else if and .Required .HasEnum}}
+		params.{{.PascalName}} = spotify.{{$tool.CamelName}}Params{{.PascalName}}(req.GetString({{quote .Name}}, ""))
+{{- else if and .Required (eq .MCPType "Number")}}
+		params.{{.PascalName}} = req.GetInt({{quote .Name}}, 0)
+{{- else if and .Required (eq .MCPType "Boolean")}}
+		params.{{.PascalName}} = req.GetString({{quote .Name}}, "") == "true"
+{{- else if .Required}}
+		params.{{.PascalName}} = req.GetString({{quote .Name}}, "")
+{{- else if eq .MCPType "Number"}}
+		if v := req.GetInt({{quote .Name}}, 0); v != 0 {
+			params.{{.PascalName}} = &v
+		}
+{{- else if .HasEnum}}
 		if v := req.GetString({{quote .Name}}, ""); v != "" {
-			q.Set({{quote .Name}}, v)
+			ev := spotify.{{$tool.CamelName}}Params{{.PascalName}}(v)
+			params.{{.PascalName}} = &ev
+		}
+{{- else}}
+		if v := req.GetString({{quote .Name}}, ""); v != "" {
+			params.{{.PascalName}} = &v
 		}
 {{- end}}
-		httpReq.URL.RawQuery = q.Encode()
+{{- end}}
 {{- end}}
 
-		resp, err := httpClient.Do(httpReq)
+{{- if and .HasBody (not .HasJSONBody)}}
+		resp, err := client.{{.CamelName}}WithBodyWithResponse(ctx{{range .PathParams}}, {{.GoName}}{{end}}, {{quote .BodyCT}}, strings.NewReader(req.GetString("body", "")))
+{{- else}}
+		resp, err := client.{{.CamelName}}WithResponse(ctx{{range .PathParams}}, {{.GoName}}{{end}}{{if .QueryParams}}, params{{end}}{{if .HasJSONBody}}, spotify.{{.CamelName}}JSONRequestBody{}{{end}})
+{{- end}}
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		if resp.HTTPResponse.StatusCode >= 400 {
+			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 		}
 
-		if resp.StatusCode >= 400 {
-			return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-		}
-
-		return mcp.NewToolResultText(string(body)), nil
+		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
 {{end}}

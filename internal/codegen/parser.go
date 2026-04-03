@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,19 +18,21 @@ type Parameter struct {
 	Type        string
 	Required    bool
 	Description string
+	HasEnum     bool
 }
 
 // Operation represents a parsed, non-deprecated OpenAPI operation.
 type Operation struct {
-	OperationID    string
-	Method         string
-	Path           string
-	Summary        string
-	Description    string
-	Tags           []string
-	Parameters     []Parameter
-	RequestBodyRef string
-	Scopes         []string
+	OperationID     string
+	Method          string
+	Path            string
+	Summary         string
+	Description     string
+	Tags            []string
+	Parameters      []Parameter
+	RequestBodyRef  string
+	BodyContentType string // e.g., "application/json", "image/jpeg"
+	Scopes          []string
 }
 
 // ParsedSpec holds the result of parsing an OpenAPI spec.
@@ -50,7 +53,7 @@ func Parse(data []byte) (*ParsedSpec, error) {
 			if op.Deprecated {
 				continue
 			}
-			ops = append(ops, convertOperation(path, method, op))
+			ops = append(ops, convertOperation(path, method, op, spec.Components.Parameters))
 		}
 	}
 
@@ -85,7 +88,10 @@ func FetchAndParse(ctx context.Context, url string) (*ParsedSpec, error) {
 // Internal YAML types for unmarshalling OpenAPI 3.0.3
 
 type openAPISpec struct {
-	Paths map[string]pathItem `yaml:"paths"`
+	Paths      map[string]pathItem `yaml:"paths"`
+	Components struct {
+		Parameters map[string]yamlParameter `yaml:"parameters"`
+	} `yaml:"components"`
 }
 
 type pathItem struct {
@@ -128,6 +134,7 @@ type yamlOperation struct {
 }
 
 type yamlParameter struct {
+	Ref         string     `yaml:"$ref"`
 	Name        string     `yaml:"name"`
 	In          string     `yaml:"in"`
 	Required    bool       `yaml:"required"`
@@ -136,8 +143,10 @@ type yamlParameter struct {
 }
 
 type yamlSchema struct {
-	Type string `yaml:"type"`
-	Ref  string `yaml:"$ref"`
+	Type  string     `yaml:"type"`
+	Ref   string     `yaml:"$ref"`
+	Enum  []string   `yaml:"enum"`
+	Items *yamlSchema `yaml:"items"`
 }
 
 type yamlRequestBody struct {
@@ -148,7 +157,7 @@ type yamlMediaType struct {
 	Schema yamlSchema `yaml:"schema"`
 }
 
-func convertOperation(path, method string, op *yamlOperation) Operation {
+func convertOperation(path, method string, op *yamlOperation, componentParams map[string]yamlParameter) Operation {
 	result := Operation{
 		OperationID: op.OperationID,
 		Method:      method,
@@ -159,21 +168,45 @@ func convertOperation(path, method string, op *yamlOperation) Operation {
 	}
 
 	for _, p := range op.Parameters {
+		// Resolve $ref parameters from components
+		if p.Ref != "" {
+			refName := strings.TrimPrefix(p.Ref, "#/components/parameters/")
+			if resolved, ok := componentParams[refName]; ok {
+				p = resolved
+			} else {
+				continue
+			}
+		}
+		if p.Name == "" {
+			continue
+		}
+		paramType := p.Schema.Type
+		hasEnum := len(p.Schema.Enum) > 0
+		// Detect array params (schema has items but no explicit type: array)
+		if p.Schema.Items != nil {
+			paramType = "array"
+			if len(p.Schema.Items.Enum) > 0 {
+				hasEnum = true
+			}
+		}
 		result.Parameters = append(result.Parameters, Parameter{
 			Name:        p.Name,
 			In:          p.In,
-			Type:        p.Schema.Type,
+			Type:        paramType,
 			Required:    p.Required,
 			Description: p.Description,
+			HasEnum:     hasEnum,
 		})
 	}
 
 	if op.RequestBody != nil {
-		for _, mt := range op.RequestBody.Content {
+		result.RequestBodyRef = "true" // signal that body exists
+		for ct, mt := range op.RequestBody.Content {
+			result.BodyContentType = ct
 			if mt.Schema.Ref != "" {
 				result.RequestBodyRef = mt.Schema.Ref
-				break
 			}
+			break
 		}
 	}
 
