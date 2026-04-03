@@ -30,7 +30,7 @@ func NewSQLiteTokenStore(path string) (*SQLiteTokenStore, error) {
 	}
 
 	if _, err := db.Exec(createTableSQL); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("creating table: %w", err)
 	}
 

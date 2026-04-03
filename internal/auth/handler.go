@@ -287,7 +287,7 @@ func (h *Handler) handleTokenCodeExchange(w http.ResponseWriter, r *http.Request
 		record.MCPAccessToken = accessToken
 		record.MCPRefreshToken = refreshToken
 		record.MCPTokenExpiry = time.Now().Add(h.tokenManager.TTL())
-		h.store.Store(r.Context(), pending.ClientID, record)
+		_ = h.store.Store(r.Context(), pending.ClientID, record)
 	}
 
 	writeTokenResponse(w, accessToken, refreshToken, int(h.tokenManager.TTL().Seconds()))
@@ -324,7 +324,7 @@ func (h *Handler) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 		record.MCPAccessToken = accessToken
 		record.MCPRefreshToken = refreshToken
 		record.MCPTokenExpiry = time.Now().Add(h.tokenManager.TTL())
-		h.store.Store(r.Context(), clientID, record)
+		_ = h.store.Store(r.Context(), clientID, record)
 	}
 
 	writeTokenResponse(w, accessToken, refreshToken, int(h.tokenManager.TTL().Seconds()))
@@ -333,12 +333,12 @@ func (h *Handler) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 func writeTokenError(w http.ResponseWriter, errCode string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": errCode})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": errCode})
 }
 
 func writeTokenResponse(w http.ResponseWriter, accessToken, refreshToken string, expiresIn int) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"token_type":    "Bearer",
@@ -353,7 +353,7 @@ func (h *Handler) handleProtectedResource(w http.ResponseWriter, r *http.Request
 		"authorization_servers": []string{base},
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) handleAuthorizationServer(w http.ResponseWriter, r *http.Request) {
@@ -368,7 +368,7 @@ func (h *Handler) handleAuthorizationServer(w http.ResponseWriter, r *http.Reque
 		"code_challenge_methods_supported": []string{"S256"},
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -393,7 +393,7 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *Handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {

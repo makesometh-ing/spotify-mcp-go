@@ -52,7 +52,7 @@ func (c *SpotifyClient) ExchangeCode(ctx context.Context, code, redirectURI, cod
 	if err != nil {
 		return nil, fmt.Errorf("spotify token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -94,7 +94,7 @@ func (c *SpotifyClient) RefreshToken(ctx context.Context, refreshToken string) (
 	if err != nil {
 		return nil, fmt.Errorf("spotify refresh request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

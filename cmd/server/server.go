@@ -68,11 +68,11 @@ func loadConfig(envFilePath string) (*serverConfig, error) {
 }
 
 func printStartupInfo(out io.Writer, port string) {
-	fmt.Fprintf(out, "MCP endpoint: http://localhost:%s/mcp\n", port)
-	fmt.Fprintf(out, "Callback URL: http://localhost:%s/callback\n", port)
-	fmt.Fprintf(out, "SPOTIFY_CLIENT_ID: set\n")
-	fmt.Fprintf(out, "SPOTIFY_CLIENT_SECRET: set\n")
-	fmt.Fprintf(out, "\nConfigure the callback URL above as a Redirect URI in your Spotify Developer Dashboard at https://developer.spotify.com/dashboard\n")
+	_, _ = fmt.Fprintf(out, "MCP endpoint: http://localhost:%s/mcp\n", port)
+	_, _ = fmt.Fprintf(out, "Callback URL: http://localhost:%s/callback\n", port)
+	_, _ = fmt.Fprintf(out, "SPOTIFY_CLIENT_ID: set\n")
+	_, _ = fmt.Fprintf(out, "SPOTIFY_CLIENT_SECRET: set\n")
+	_, _ = fmt.Fprintf(out, "\nConfigure the callback URL above as a Redirect URI in your Spotify Developer Dashboard at https://developer.spotify.com/dashboard\n")
 }
 
 // run starts the MCP server. It blocks until ctx is cancelled. When the server
@@ -130,7 +130,7 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 	srv := &http.Server{Handler: mux}
 	go func() {
 		<-ctx.Done()
-		srv.Shutdown(context.Background())
+		_ = srv.Shutdown(context.Background())
 	}()
 
 	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -146,7 +146,7 @@ func readEnvFile(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	result := make(map[string]string)
 	scanner := bufio.NewScanner(f)
