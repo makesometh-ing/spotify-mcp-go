@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -10,6 +11,44 @@ import (
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
 )
+
+type contextKey string
+
+const clientIDContextKey contextKey = "client_id"
+
+// ClientIDFromContext extracts the authenticated client ID from the request context.
+func ClientIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(clientIDContextKey).(string)
+	return v, ok
+}
+
+// AuthMiddleware returns a handler that validates the Bearer token in the
+// Authorization header and sets the client ID in the request context.
+func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			h.writeUnauthorized(w)
+			return
+		}
+
+		token := strings.TrimPrefix(auth, "Bearer ")
+		clientID, ok := h.tokenManager.ValidateAccessToken(token)
+		if !ok {
+			h.writeUnauthorized(w)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), clientIDContextKey, clientID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (h *Handler) writeUnauthorized(w http.ResponseWriter) {
+	base := h.getBaseURL()
+	w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+base+`/.well-known/oauth-protected-resource"`)
+	w.WriteHeader(http.StatusUnauthorized)
+}
 
 // PendingAuth holds the state for an in-progress authorization flow.
 type PendingAuth struct {

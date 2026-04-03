@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
 	"github.com/stretchr/testify/assert"
@@ -754,4 +755,165 @@ func TestTokenGETReturns405(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+}
+
+// --- Auth middleware tests ---
+
+type recordingHandler struct {
+	called           bool
+	receivedClientID string
+}
+
+func (rh *recordingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	rh.called = true
+	rh.receivedClientID, _ = ClientIDFromContext(r.Context())
+	w.WriteHeader(http.StatusOK)
+}
+
+func setupAuthMiddlewareTest(t *testing.T) (ts *httptest.Server, h *Handler, validToken string, clientID string, recorder *recordingHandler) {
+	t.Helper()
+	tokenStore := store.NewInMemoryTokenStore()
+	h = NewHandler(HandlerConfig{
+		SpotifyClientID:     "test-spotify-client-id",
+		SpotifyClientSecret: "test-spotify-client-secret",
+		SpotifyScopes:       []string{"user-read-playback-state"},
+		Store:               tokenStore,
+	})
+
+	clientID = "test-client-123"
+	var err error
+	validToken, err = h.tokenManager.IssueAccessToken(clientID)
+	require.NoError(t, err)
+
+	recorder = &recordingHandler{}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.Handle("POST /mcp", h.AuthMiddleware(recorder))
+	ts = httptest.NewServer(mux)
+	h.SetBaseURL(ts.URL)
+	t.Cleanup(ts.Close)
+
+	return
+}
+
+func TestAuthMiddlewareNoAuthHeader(t *testing.T) {
+	ts, _, _, _, recorder := setupAuthMiddlewareTest(t)
+
+	resp, err := http.Post(ts.URL+"/mcp", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.False(t, recorder.called)
+}
+
+func TestAuthMiddleware401IncludesWWWAuthenticate(t *testing.T) {
+	ts, _, _, _, _ := setupAuthMiddlewareTest(t)
+
+	resp, err := http.Post(ts.URL+"/mcp", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "Bearer")
+}
+
+func TestAuthMiddleware401IncludesResourceMetadata(t *testing.T) {
+	ts, _, _, _, _ := setupAuthMiddlewareTest(t)
+
+	resp, err := http.Post(ts.URL+"/mcp", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	wwwAuth := resp.Header.Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, "resource_metadata")
+	assert.Contains(t, wwwAuth, "/.well-known/oauth-protected-resource")
+}
+
+func TestAuthMiddlewareValidToken(t *testing.T) {
+	ts, _, validToken, _, recorder := setupAuthMiddlewareTest(t)
+
+	req, err := http.NewRequest("POST", ts.URL+"/mcp", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+validToken)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.True(t, recorder.called)
+}
+
+func TestAuthMiddlewarePassesClientID(t *testing.T) {
+	ts, _, validToken, clientID, recorder := setupAuthMiddlewareTest(t)
+
+	req, err := http.NewRequest("POST", ts.URL+"/mcp", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+validToken)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, clientID, recorder.receivedClientID)
+}
+
+func TestAuthMiddlewareExpiredToken(t *testing.T) {
+	tokenStore := store.NewInMemoryTokenStore()
+	h := NewHandler(HandlerConfig{
+		SpotifyClientID:     "test-spotify-client-id",
+		SpotifyClientSecret: "test-spotify-client-secret",
+		SpotifyScopes:       []string{"user-read-playback-state"},
+		Store:               tokenStore,
+		MCPTokenTTL:         -time.Second,
+	})
+
+	token, err := h.tokenManager.IssueAccessToken("client-1")
+	require.NoError(t, err)
+
+	recorder := &recordingHandler{}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	mux.Handle("POST /mcp", h.AuthMiddleware(recorder))
+	ts := httptest.NewServer(mux)
+	h.SetBaseURL(ts.URL)
+	t.Cleanup(ts.Close)
+
+	req, err := http.NewRequest("POST", ts.URL+"/mcp", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.False(t, recorder.called)
+}
+
+func TestAuthMiddlewareInvalidToken(t *testing.T) {
+	ts, _, _, _, recorder := setupAuthMiddlewareTest(t)
+
+	req, err := http.NewRequest("POST", ts.URL+"/mcp", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer random-garbage-token")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.False(t, recorder.called)
+}
+
+func TestAuthMiddlewareWrongScheme(t *testing.T) {
+	ts, _, _, _, recorder := setupAuthMiddlewareTest(t)
+
+	req, err := http.NewRequest("POST", ts.URL+"/mcp", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.False(t, recorder.called)
 }
