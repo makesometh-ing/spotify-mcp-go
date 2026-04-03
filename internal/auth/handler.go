@@ -31,7 +31,8 @@ type HandlerConfig struct {
 	SpotifyClientSecret  string
 	SpotifyScopes        []string
 	Store                store.TokenStore
-	SpotifyTokenEndpoint string // optional override for testing
+	SpotifyTokenEndpoint string        // optional override for testing
+	MCPTokenTTL          time.Duration // optional, defaults to 1 hour
 }
 
 // Handler implements the OAuth proxy HTTP endpoints for MCP clients.
@@ -44,6 +45,7 @@ type Handler struct {
 	pendingAuths    map[string]PendingAuth // keyed by state parameter
 	spotifyClient   *SpotifyClient
 	pendingCodes    map[string]PendingCode // keyed by MCP auth code
+	tokenManager    *TokenManager
 }
 
 // NewHandler creates a Handler with the given configuration.
@@ -51,6 +53,10 @@ func NewHandler(cfg HandlerConfig) *Handler {
 	endpoint := cfg.SpotifyTokenEndpoint
 	if endpoint == "" {
 		endpoint = defaultSpotifyTokenEndpoint
+	}
+	ttl := cfg.MCPTokenTTL
+	if ttl == 0 {
+		ttl = time.Hour
 	}
 	return &Handler{
 		spotifyClientID: cfg.SpotifyClientID,
@@ -63,6 +69,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 			TokenEndpoint: endpoint,
 		},
 		pendingCodes: make(map[string]PendingCode),
+		tokenManager: NewTokenManager(ttl),
 	}
 }
 
@@ -102,6 +109,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /register", h.handleRegister)
 	mux.HandleFunc("GET /authorize", h.handleAuthorize)
 	mux.HandleFunc("GET /callback", h.handleCallback)
+	mux.HandleFunc("POST /token", h.handleToken)
 }
 
 func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -170,6 +178,128 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	redirectURL.RawQuery = q.Encode()
 
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
+}
+
+func (h *Handler) handleToken(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeTokenError(w, "invalid_request", http.StatusBadRequest)
+		return
+	}
+
+	switch r.FormValue("grant_type") {
+	case "authorization_code":
+		h.handleTokenCodeExchange(w, r)
+	case "refresh_token":
+		h.handleTokenRefresh(w, r)
+	default:
+		writeTokenError(w, "unsupported_grant_type", http.StatusBadRequest)
+	}
+}
+
+func (h *Handler) handleTokenCodeExchange(w http.ResponseWriter, r *http.Request) {
+	code := r.FormValue("code")
+	if code == "" {
+		writeTokenError(w, "invalid_request", http.StatusBadRequest)
+		return
+	}
+
+	codeVerifier := r.FormValue("code_verifier")
+
+	// Look up and consume the pending code (one-time use)
+	h.mu.Lock()
+	pending, ok := h.pendingCodes[code]
+	if ok {
+		delete(h.pendingCodes, code)
+	}
+	h.mu.Unlock()
+
+	if !ok {
+		writeTokenError(w, "invalid_grant", http.StatusBadRequest)
+		return
+	}
+
+	// Verify PKCE
+	if !VerifyCodeChallenge(codeVerifier, pending.CodeChallenge) {
+		writeTokenError(w, "invalid_grant", http.StatusBadRequest)
+		return
+	}
+
+	// Issue MCP tokens
+	accessToken, err := h.tokenManager.IssueAccessToken(pending.ClientID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	refreshToken, err := h.tokenManager.IssueRefreshToken(pending.ClientID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Update store record with MCP tokens
+	record, err := h.store.Load(r.Context(), pending.ClientID)
+	if err == nil && record != nil {
+		record.MCPAccessToken = accessToken
+		record.MCPRefreshToken = refreshToken
+		record.MCPTokenExpiry = time.Now().Add(h.tokenManager.TTL())
+		h.store.Store(r.Context(), pending.ClientID, record)
+	}
+
+	writeTokenResponse(w, accessToken, refreshToken, int(h.tokenManager.TTL().Seconds()))
+}
+
+func (h *Handler) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
+	oldRefresh := r.FormValue("refresh_token")
+
+	clientID, ok := h.tokenManager.ValidateRefreshToken(oldRefresh)
+	if !ok {
+		writeTokenError(w, "invalid_grant", http.StatusBadRequest)
+		return
+	}
+
+	// Invalidate old refresh token (rotation)
+	h.tokenManager.InvalidateRefreshToken(oldRefresh)
+
+	// Issue new tokens
+	accessToken, err := h.tokenManager.IssueAccessToken(clientID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	refreshToken, err := h.tokenManager.IssueRefreshToken(clientID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Update store record
+	record, err := h.store.Load(r.Context(), clientID)
+	if err == nil && record != nil {
+		record.MCPAccessToken = accessToken
+		record.MCPRefreshToken = refreshToken
+		record.MCPTokenExpiry = time.Now().Add(h.tokenManager.TTL())
+		h.store.Store(r.Context(), clientID, record)
+	}
+
+	writeTokenResponse(w, accessToken, refreshToken, int(h.tokenManager.TTL().Seconds()))
+}
+
+func writeTokenError(w http.ResponseWriter, errCode string, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": errCode})
+}
+
+func writeTokenResponse(w http.ResponseWriter, accessToken, refreshToken string, expiresIn int) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"token_type":    "Bearer",
+		"expires_in":    expiresIn,
+	})
 }
 
 func (h *Handler) handleProtectedResource(w http.ResponseWriter, r *http.Request) {

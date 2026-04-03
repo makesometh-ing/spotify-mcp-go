@@ -471,3 +471,287 @@ func TestCallbackSpotifyFailureReturns502(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadGateway, resp.StatusCode)
 }
+
+// --- Token endpoint tests ---
+
+// setupTokenTest completes the full auth flow through callback and returns
+// the MCP auth code, client ID, and PKCE code verifier for POST /token tests.
+func setupTokenTest(t *testing.T) (ts *httptest.Server, h *Handler, mcpCode string, clientID string, codeVerifier string) {
+	t.Helper()
+	mock := newMockSpotify(t)
+
+	tokenStore := store.NewInMemoryTokenStore()
+	h = NewHandler(HandlerConfig{
+		SpotifyClientID:      "test-spotify-client-id",
+		SpotifyClientSecret:  "test-spotify-client-secret",
+		SpotifyScopes:        []string{"user-read-playback-state"},
+		Store:                tokenStore,
+		SpotifyTokenEndpoint: mock.Server.URL,
+	})
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	ts = httptest.NewServer(mux)
+	h.SetBaseURL(ts.URL)
+	t.Cleanup(ts.Close)
+
+	clientID = registerClient(t, ts)
+
+	// Generate real PKCE pair
+	var err error
+	codeVerifier, err = GenerateCodeVerifier()
+	require.NoError(t, err)
+	challenge := CodeChallenge(codeVerifier)
+
+	// Authorize
+	client := noRedirectClient()
+	u := ts.URL + "/authorize?" + url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {"http://localhost:9999/callback"},
+		"code_challenge":        {challenge},
+		"code_challenge_method": {"S256"},
+		"response_type":         {"code"},
+	}.Encode()
+	resp, err := client.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	require.NoError(t, err)
+	state := loc.Query().Get("state")
+
+	// Callback (exchanges Spotify code via mock, generates MCP auth code)
+	u = ts.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {state},
+	}.Encode()
+	resp2, err := client.Get(u)
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+
+	loc2, err := url.Parse(resp2.Header.Get("Location"))
+	require.NoError(t, err)
+	mcpCode = loc2.Query().Get("code")
+	require.NotEmpty(t, mcpCode, "callback should redirect with MCP auth code")
+
+	return ts, h, mcpCode, clientID, codeVerifier
+}
+
+func postToken(t *testing.T, ts *httptest.Server, form url.Values) *http.Response {
+	t.Helper()
+	resp, err := http.PostForm(ts.URL+"/token", form)
+	require.NoError(t, err)
+	return resp
+}
+
+func TestTokenCodeExchangeValid(t *testing.T) {
+	ts, _, mcpCode, _, codeVerifier := setupTokenTest(t)
+
+	resp := postToken(t, ts, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {mcpCode},
+		"code_verifier": {codeVerifier},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+
+	var body map[string]any
+	err := json.NewDecoder(resp.Body).Decode(&body)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, body["access_token"])
+	assert.NotEmpty(t, body["refresh_token"])
+	assert.Equal(t, "Bearer", body["token_type"])
+	expiresIn, ok := body["expires_in"].(float64)
+	require.True(t, ok)
+	assert.Greater(t, expiresIn, float64(0))
+}
+
+func TestTokenCodeExchangeInvalidCode(t *testing.T) {
+	ts, _, _, _, _ := setupTokenTest(t)
+
+	resp := postToken(t, ts, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {"invalid-code"},
+		"code_verifier": {"any-verifier"},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	assert.Equal(t, "invalid_grant", body["error"])
+}
+
+func TestTokenCodeExchangeWrongPKCE(t *testing.T) {
+	ts, _, mcpCode, _, _ := setupTokenTest(t)
+
+	resp := postToken(t, ts, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {mcpCode},
+		"code_verifier": {"wrong-verifier-that-does-not-match-the-challenge"},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	assert.Equal(t, "invalid_grant", body["error"])
+}
+
+func TestTokenCodeExchangeReplay(t *testing.T) {
+	ts, _, mcpCode, _, codeVerifier := setupTokenTest(t)
+
+	// First exchange succeeds
+	resp1 := postToken(t, ts, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {mcpCode},
+		"code_verifier": {codeVerifier},
+	})
+	resp1.Body.Close()
+	assert.Equal(t, http.StatusOK, resp1.StatusCode)
+
+	// Replay with same code fails
+	resp2 := postToken(t, ts, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {mcpCode},
+		"code_verifier": {codeVerifier},
+	})
+	defer resp2.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp2.StatusCode)
+
+	var body map[string]any
+	json.NewDecoder(resp2.Body).Decode(&body)
+	assert.Equal(t, "invalid_grant", body["error"])
+}
+
+func TestTokenCodeExchangeMissingCode(t *testing.T) {
+	ts, _, _, _, _ := setupTokenTest(t)
+
+	resp := postToken(t, ts, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code_verifier": {"any-verifier"},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestTokenRefreshValid(t *testing.T) {
+	ts, _, mcpCode, _, codeVerifier := setupTokenTest(t)
+
+	// Exchange code to get tokens
+	resp1 := postToken(t, ts, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {mcpCode},
+		"code_verifier": {codeVerifier},
+	})
+	var tokens map[string]any
+	json.NewDecoder(resp1.Body).Decode(&tokens)
+	resp1.Body.Close()
+
+	refreshToken := tokens["refresh_token"].(string)
+
+	// Refresh
+	resp2 := postToken(t, ts, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+	})
+	defer resp2.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+	assert.Equal(t, "application/json", resp2.Header.Get("Content-Type"))
+
+	var body map[string]any
+	err := json.NewDecoder(resp2.Body).Decode(&body)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, body["access_token"])
+	assert.NotEmpty(t, body["refresh_token"])
+	assert.Equal(t, "Bearer", body["token_type"])
+	expiresIn, ok := body["expires_in"].(float64)
+	require.True(t, ok)
+	assert.Greater(t, expiresIn, float64(0))
+}
+
+func TestTokenRefreshInvalid(t *testing.T) {
+	ts, _, _, _, _ := setupTokenTest(t)
+
+	resp := postToken(t, ts, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {"invalid-refresh-token"},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	assert.Equal(t, "invalid_grant", body["error"])
+}
+
+func TestTokenRefreshRotation(t *testing.T) {
+	ts, _, mcpCode, _, codeVerifier := setupTokenTest(t)
+
+	// Exchange code to get tokens
+	resp1 := postToken(t, ts, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {mcpCode},
+		"code_verifier": {codeVerifier},
+	})
+	var tokens map[string]any
+	json.NewDecoder(resp1.Body).Decode(&tokens)
+	resp1.Body.Close()
+
+	oldRefresh := tokens["refresh_token"].(string)
+
+	// Refresh succeeds, rotates token
+	resp2 := postToken(t, ts, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {oldRefresh},
+	})
+	resp2.Body.Close()
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+
+	// Old refresh token is now invalid
+	resp3 := postToken(t, ts, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {oldRefresh},
+	})
+	defer resp3.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp3.StatusCode)
+
+	var body map[string]any
+	json.NewDecoder(resp3.Body).Decode(&body)
+	assert.Equal(t, "invalid_grant", body["error"])
+}
+
+func TestTokenUnsupportedGrantType(t *testing.T) {
+	ts, _, _, _, _ := setupTokenTest(t)
+
+	resp := postToken(t, ts, url.Values{
+		"grant_type": {"client_credentials"},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	assert.Equal(t, "unsupported_grant_type", body["error"])
+}
+
+func TestTokenGETReturns405(t *testing.T) {
+	ts, _, _, _, _ := setupTokenTest(t)
+
+	resp, err := http.Get(ts.URL + "/token")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+}
