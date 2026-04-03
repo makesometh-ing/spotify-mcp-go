@@ -164,8 +164,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-const spotifyAPIBase = "https://api.spotify.com"
-
 {{- range .Tools}}
 
 // {{.VarName}}Scopes lists the OAuth scopes required by the {{.OperationID}} tool.
@@ -179,14 +177,14 @@ var {{.VarName}} = mcp.NewTool({{quote .OperationID}},
 )
 
 // {{.HandlerName}} creates a handler for the {{.OperationID}} tool.
-func {{.HandlerName}}(httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func {{.HandlerName}}(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path := {{quote .PathPattern}}
 {{- range .PathParams}}
 		path = strings.ReplaceAll(path, "{ {{- .Name -}} }", req.GetString({{quote .Name}}, ""))
 {{- end}}
 
-		httpReq, err := http.NewRequestWithContext(ctx, {{quote .Method}}, spotifyAPIBase+path, {{if .HasBody}}strings.NewReader(req.GetString("body", "{}")){{else}}nil{{end}})
+		httpReq, err := http.NewRequestWithContext(ctx, {{quote .Method}}, baseURL+path, {{if .HasBody}}strings.NewReader(req.GetString("body", "{}")){{else}}nil{{end}})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -229,5 +227,14 @@ var AllTools = []mcp.Tool{
 {{- range .Tools}}
 	{{.VarName}},
 {{- end}}
+}
+
+// AllRegistrations returns all generated tool registrations paired with their handler factories.
+func AllRegistrations() []ToolRegistration {
+	return []ToolRegistration{
+{{- range .Tools}}
+		{Tool: {{.VarName}}, NewHandler: {{.HandlerName}}},
+{{- end}}
+	}
 }
 `

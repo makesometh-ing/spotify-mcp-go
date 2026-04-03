@@ -22,6 +22,11 @@ func ClientIDFromContext(ctx context.Context) (string, bool) {
 	return v, ok
 }
 
+// ContextWithClientID returns a context carrying the given client ID.
+func ContextWithClientID(ctx context.Context, clientID string) context.Context {
+	return context.WithValue(ctx, clientIDContextKey, clientID)
+}
+
 // AuthMiddleware returns a handler that validates the Bearer token in the
 // Authorization header and sets the client ID in the request context.
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
