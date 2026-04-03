@@ -60,13 +60,22 @@ func (r *TokenRefresher) refresh(ctx context.Context, clientID string, record *s
 		return "", err
 	}
 
-	record.SpotifyAccessToken = tokenResp.AccessToken
+	// Create a new record rather than mutating the shared pointer from the store.
+	refreshToken := record.SpotifyRefreshToken
 	if tokenResp.RefreshToken != "" {
-		record.SpotifyRefreshToken = tokenResp.RefreshToken
+		refreshToken = tokenResp.RefreshToken
 	}
-	record.SpotifyTokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	updated := &store.TokenRecord{
+		SpotifyAccessToken:  tokenResp.AccessToken,
+		SpotifyRefreshToken: refreshToken,
+		SpotifyTokenExpiry:  time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		MCPAccessToken:      record.MCPAccessToken,
+		MCPRefreshToken:     record.MCPRefreshToken,
+		MCPTokenExpiry:      record.MCPTokenExpiry,
+		CreatedAt:           record.CreatedAt,
+	}
 
-	if err := r.store.Store(ctx, clientID, record); err != nil {
+	if err := r.store.Store(ctx, clientID, updated); err != nil {
 		return "", fmt.Errorf("storing refreshed tokens: %w", err)
 	}
 
