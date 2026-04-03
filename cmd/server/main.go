@@ -18,7 +18,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	if err := run(ctx, cfg, os.Stdout, nil); err != nil {
+	if err := run(ctx, cfg, nil, os.Stdout, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
 	}

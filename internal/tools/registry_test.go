@@ -140,7 +140,7 @@ func testRegistrations() []ToolRegistration {
 func TestToolRegistryRegistersAllTools(t *testing.T) {
 	env := newTestEnv(t)
 	regs := testRegistrations()
-	Register(env.mcpServer, regs, env.tokenStore, env.mockSpotify.URL)
+	Register(env.mcpServer, regs, env.tokenStore, nil, env.mockSpotify.URL)
 
 	tools := env.mcpServer.ListTools()
 	assert.Len(t, tools, len(regs))
@@ -150,7 +150,7 @@ func TestToolRegistryRegistersAllTools(t *testing.T) {
 
 func TestToolRegistryToolsList(t *testing.T) {
 	env := newTestEnv(t)
-	Register(env.mcpServer, testRegistrations(), env.tokenStore, env.mockSpotify.URL)
+	Register(env.mcpServer, testRegistrations(), env.tokenStore, nil, env.mockSpotify.URL)
 
 	tools := env.mcpServer.ListTools()
 
@@ -168,7 +168,7 @@ func TestToolRegistryToolsList(t *testing.T) {
 
 func TestToolRegistryToolDispatch(t *testing.T) {
 	env := newTestEnv(t)
-	Register(env.mcpServer, testRegistrations(), env.tokenStore, env.mockSpotify.URL)
+	Register(env.mcpServer, testRegistrations(), env.tokenStore, nil, env.mockSpotify.URL)
 
 	// Invoke get-item; verify the mock receives a request to /v1/items/abc
 	tool := env.mcpServer.GetTool("get-item")
@@ -190,7 +190,7 @@ func TestToolRegistryToolDispatch(t *testing.T) {
 
 func TestToolRegistryHandlerReceivesToken(t *testing.T) {
 	env := newTestEnv(t)
-	Register(env.mcpServer, testRegistrations(), env.tokenStore, env.mockSpotify.URL)
+	Register(env.mcpServer, testRegistrations(), env.tokenStore, nil, env.mockSpotify.URL)
 
 	tool := env.mcpServer.GetTool("get-item")
 	require.NotNil(t, tool)
@@ -209,7 +209,7 @@ func TestToolRegistryHandlerReceivesToken(t *testing.T) {
 
 func TestToolRegistryCallsCorrectEndpoint(t *testing.T) {
 	env := newTestEnv(t)
-	Register(env.mcpServer, testRegistrations(), env.tokenStore, env.mockSpotify.URL)
+	Register(env.mcpServer, testRegistrations(), env.tokenStore, nil, env.mockSpotify.URL)
 
 	// Call list-items; verify GET /v1/items
 	tool := env.mcpServer.GetTool("list-items")
@@ -234,7 +234,7 @@ func TestToolRegistryReturnsAPIResponse(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"name": "Test Playlist"})
 	}
-	Register(env.mcpServer, testRegistrations(), env.tokenStore, env.mockSpotify.URL)
+	Register(env.mcpServer, testRegistrations(), env.tokenStore, nil, env.mockSpotify.URL)
 
 	tool := env.mcpServer.GetTool("get-item")
 	require.NotNil(t, tool)
@@ -256,7 +256,7 @@ func TestToolRegistryReturnsAPIResponse(t *testing.T) {
 
 func TestToolRegistryNonExistentTool(t *testing.T) {
 	env := newTestEnv(t)
-	Register(env.mcpServer, testRegistrations(), env.tokenStore, env.mockSpotify.URL)
+	Register(env.mcpServer, testRegistrations(), env.tokenStore, nil, env.mockSpotify.URL)
 
 	tool := env.mcpServer.GetTool("does-not-exist")
 	assert.Nil(t, tool, "non-existent tool should return nil")
@@ -269,7 +269,7 @@ func TestToolRegistrySpotifyError(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(w, `{"error":{"status":404,"message":"Not found"}}`)
 	}
-	Register(env.mcpServer, testRegistrations(), env.tokenStore, env.mockSpotify.URL)
+	Register(env.mcpServer, testRegistrations(), env.tokenStore, nil, env.mockSpotify.URL)
 
 	tool := env.mcpServer.GetTool("get-item")
 	require.NotNil(t, tool)

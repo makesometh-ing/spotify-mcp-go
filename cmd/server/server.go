@@ -14,13 +14,16 @@ import (
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth"
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
+	"github.com/makesometh-ing/spotify-mcp-go/internal/tools"
 )
 
 type serverConfig struct {
-	Port                string
-	SpotifyClientID     string
-	SpotifyClientSecret string
-	TokenDBPath         string
+	Port                 string
+	SpotifyClientID      string
+	SpotifyClientSecret  string
+	TokenDBPath          string
+	SpotifyTokenEndpoint string // override for testing; empty = Spotify default
+	SpotifyAPIBaseURL    string // override for testing; empty = https://api.spotify.com
 }
 
 // loadConfig reads configuration from environment variables and an optional .env file.
@@ -74,18 +77,34 @@ func printStartupInfo(out io.Writer, port string) {
 
 // run starts the MCP server. It blocks until ctx is cancelled. When the server
 // is ready to accept connections, the listen address is sent on addrCh (if non-nil).
-func run(ctx context.Context, cfg *serverConfig, out io.Writer, addrCh chan<- string) error {
+// toolRegs may be nil if no tools are registered.
+func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistration, out io.Writer, addrCh chan<- string) error {
 	tokenStore := store.NewInMemoryTokenStore()
 
+	spotifyClient := &auth.SpotifyClient{
+		ClientID:      cfg.SpotifyClientID,
+		ClientSecret:  cfg.SpotifyClientSecret,
+		TokenEndpoint: cfg.SpotifyTokenEndpoint,
+	}
+
 	authHandler := auth.NewHandler(auth.HandlerConfig{
-		SpotifyClientID:     cfg.SpotifyClientID,
-		SpotifyClientSecret: cfg.SpotifyClientSecret,
-		Store:               tokenStore,
+		SpotifyClientID:      cfg.SpotifyClientID,
+		SpotifyClientSecret:  cfg.SpotifyClientSecret,
+		Store:                tokenStore,
+		SpotifyTokenEndpoint: cfg.SpotifyTokenEndpoint,
 	})
 
 	mcpServer := server.NewMCPServer("spotify-mcp-go", "1.0.0",
 		server.WithToolCapabilities(false),
 	)
+
+	apiBase := cfg.SpotifyAPIBaseURL
+	if apiBase == "" {
+		apiBase = "https://api.spotify.com"
+	}
+	if toolRegs != nil {
+		tools.Register(mcpServer, toolRegs, tokenStore, spotifyClient, apiBase)
+	}
 
 	httpTransport := server.NewStreamableHTTPServer(mcpServer)
 

@@ -70,3 +70,45 @@ func (c *SpotifyClient) ExchangeCode(ctx context.Context, code, redirectURI, cod
 
 	return &tokenResp, nil
 }
+
+// RefreshToken uses a refresh token to obtain new Spotify tokens.
+func (c *SpotifyClient) RefreshToken(ctx context.Context, refreshToken string) (*SpotifyTokenResponse, error) {
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {c.ClientID},
+		"client_secret": {c.ClientSecret},
+	}
+
+	httpClient := c.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	endpoint := c.TokenEndpoint
+	if endpoint == "" {
+		endpoint = defaultSpotifyTokenEndpoint
+	}
+
+	resp, err := httpClient.PostForm(endpoint, form)
+	if err != nil {
+		return nil, fmt.Errorf("spotify refresh request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading spotify refresh response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("spotify token endpoint returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp SpotifyTokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return nil, fmt.Errorf("parsing spotify refresh response: %w", err)
+	}
+
+	return &tokenResp, nil
+}
