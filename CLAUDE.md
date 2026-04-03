@@ -14,25 +14,13 @@ Integration tests are preferred over unit tests. Use unit tests only for pure lo
 
 ## Commit Conventions
 
-Conventional commits with a mandatory scope and Linear issue suffix.
+Follow https://www.conventionalcommits.org/en/v1.0.0/#summary with a mandatory scope and Linear issue suffix.
 
 Format: `<type>(<scope>): <description> [<LINEAR-ID>]`
 
-Examples:
-```
-feat(auth): implement /register endpoint [SPO-12]
-fix(tools): correct parameter mapping for playlist endpoints [SPO-15]
-test(auth): add integration tests for token refresh flow [SPO-12]
-refactor(codegen): extract OpenAPI parser into separate module [SPO-8]
-chore(ci): add weekly codegen cron job [SPO-20]
-docs(prd): add testing strategy section [SPO-5]
-```
+Example: `feat(auth): implement /register endpoint [SPO-12]`
 
-**Types**: `feat`, `fix`, `test`, `refactor`, `chore`, `docs`, `build`
-
-**Scopes**: `auth`, `tools`, `codegen`, `spotify`, `server`, `ci`, `prd`
-
-**Linear ID is mandatory.** Every commit ties back to a Linear issue. If no issue exists, create one first.
+Linear ID is mandatory. Every commit ties back to a Linear issue. If no issue exists, create one first.
 
 ## Linear Integration
 
