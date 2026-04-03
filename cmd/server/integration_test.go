@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth"
+	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
 	"github.com/makesometh-ing/spotify-mcp-go/internal/tools"
 )
 
@@ -96,26 +97,17 @@ func testToolRegs() []tools.ToolRegistration {
 	)
 	return []tools.ToolRegistration{{
 		Tool: getTool,
-		NewHandler: func(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		NewHandler: func(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				id := req.GetString("playlist_id", "")
-				httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/v1/playlists/"+id, nil)
+				resp, err := client.GetPlaylistWithResponse(ctx, id, &spotify.GetPlaylistParams{})
 				if err != nil {
 					return mcp.NewToolResultError(err.Error()), nil
 				}
-				resp, err := httpClient.Do(httpReq)
-				if err != nil {
-					return mcp.NewToolResultError(err.Error()), nil
+				if resp.HTTPResponse.StatusCode >= 400 {
+					return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.HTTPResponse.StatusCode, string(resp.Body))), nil
 				}
-				defer resp.Body.Close()
-				body, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return mcp.NewToolResultError(err.Error()), nil
-				}
-				if resp.StatusCode >= 400 {
-					return mcp.NewToolResultError(fmt.Sprintf("Spotify API error %d: %s", resp.StatusCode, string(body))), nil
-				}
-				return mcp.NewToolResultText(string(body)), nil
+				return mcp.NewToolResultText(string(resp.Body)), nil
 			}
 		},
 	}}
@@ -402,7 +394,7 @@ func TestFullServerIntegrationToolInvocation(t *testing.T) {
 	require.NotEmpty(t, api.requests)
 	lastReq := api.requests[len(api.requests)-1]
 	api.mu.Unlock()
-	assert.Equal(t, "/v1/playlists/abc123", lastReq.URL.Path)
+	assert.Equal(t, "/playlists/abc123", lastReq.URL.Path)
 	assert.Equal(t, "Bearer spotify-access-token", lastReq.Header.Get("Authorization"))
 }
 

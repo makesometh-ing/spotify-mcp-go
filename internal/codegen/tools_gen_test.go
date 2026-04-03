@@ -154,6 +154,24 @@ func TestToolGenBuildIntegration(t *testing.T) {
 	fixture := loadFixture(t)
 	projectRoot := filepath.Join("..", "..")
 
+	// Generate Spotify client from fixture (needed by tools file)
+	configPath := filepath.Join(projectRoot, "oapi-codegen.yaml")
+	oapiConfig, err := LoadOapiCodegenConfig(configPath)
+	require.NoError(t, err)
+	clientPath := filepath.Join(projectRoot, oapiConfig.ClientOutput)
+	typesPath := filepath.Join(projectRoot, oapiConfig.TypesOutput)
+	t.Cleanup(func() {
+		os.Remove(clientPath)
+		os.Remove(typesPath)
+	})
+	err = GenerateFromSpec(fixture, &GenerateConfig{
+		PackageName:  oapiConfig.PackageName,
+		ClientOutput: clientPath,
+		TypesOutput:  typesPath,
+		SkipPrune:    oapiConfig.SkipPrune,
+	})
+	require.NoError(t, err)
+
 	// Parse fixture for tool generation
 	spec, err := Parse(fixture)
 	require.NoError(t, err)
@@ -163,7 +181,6 @@ func TestToolGenBuildIntegration(t *testing.T) {
 	t.Cleanup(func() {
 		os.Remove(toolsPath)
 	})
-
 	err = GenerateToolsFile(spec.Operations, "tools", toolsPath)
 	require.NoError(t, err)
 

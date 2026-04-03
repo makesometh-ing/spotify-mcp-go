@@ -11,10 +11,11 @@ import (
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth"
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
+	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
 )
 
-// HandlerFactory creates a tool handler bound to the given base URL and HTTP client.
-type HandlerFactory func(baseURL string, httpClient *http.Client) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
+// HandlerFactory creates a tool handler bound to the typed Spotify client.
+type HandlerFactory func(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
 
 // ToolRegistration pairs a tool definition with its handler factory.
 type ToolRegistration struct {
@@ -22,24 +23,27 @@ type ToolRegistration struct {
 	NewHandler HandlerFactory
 }
 
-// Register registers all tool registrations with the MCP server. It creates an
-// HTTP client whose transport injects the caller's Spotify access token (looked
-// up via the auth context's client ID) into every outbound request, refreshing
-// expired tokens transparently.
+// Register registers all tool registrations with the MCP server. It creates a
+// Spotify ClientWithResponses whose HTTP transport injects the caller's Spotify
+// access token and handles transparent refresh.
 func Register(srv *mcpserver.MCPServer, registrations []ToolRegistration, tokenStore store.TokenStore, spotifyClient *auth.SpotifyClient, baseURL string) {
 	var refresher *auth.TokenRefresher
 	if spotifyClient != nil {
 		refresher = auth.NewTokenRefresher(tokenStore, spotifyClient)
 	}
-	client := &http.Client{
+
+	httpClient := &http.Client{
 		Transport: &spotifyTransport{
 			store:     tokenStore,
 			refresher: refresher,
 			base:      http.DefaultTransport,
 		},
 	}
+
+	client, _ := spotify.NewClientWithResponses(baseURL, spotify.WithHTTPClient(httpClient))
+
 	for _, reg := range registrations {
-		srv.AddTool(reg.Tool, reg.NewHandler(baseURL, client))
+		srv.AddTool(reg.Tool, reg.NewHandler(client))
 	}
 }
 
