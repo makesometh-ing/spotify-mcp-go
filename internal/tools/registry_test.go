@@ -25,9 +25,8 @@ type testEnv struct {
 	clientID     string
 	spotifyToken string
 
-	mu       sync.Mutex
-	requests []*http.Request
-	handler  http.HandlerFunc
+	mu      sync.Mutex
+	handler http.HandlerFunc
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -39,10 +38,10 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	env.mockSpotify = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		env.mu.Lock()
-		env.requests = append(env.requests, r)
+		h := env.handler
 		env.mu.Unlock()
 
-		if env.handler != nil {
+		if h != nil {
 			env.handler(w, r)
 			return
 		}
@@ -63,15 +62,6 @@ func newTestEnv(t *testing.T) *testEnv {
 
 func (e *testEnv) authCtx() context.Context {
 	return auth.ContextWithClientID(context.Background(), e.clientID)
-}
-
-func (e *testEnv) lastRequest() *http.Request {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if len(e.requests) == 0 {
-		return nil
-	}
-	return e.requests[len(e.requests)-1]
 }
 
 // testRegistrations returns tool registrations that use the typed Spotify client.
