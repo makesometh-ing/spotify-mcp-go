@@ -33,6 +33,8 @@ Three artifacts from one repo:
 | `SPOTIFY_MCP_PORT` | No | `8080` | HTTP server port |
 | `SPOTIFY_MCP_TOKEN_DB` | No | `~/.config/spotify-mcp-go/auth/tokens.db` | SQLite token storage path |
 
+The server reads from a `.env` file in the working directory if present, with environment variables taking precedence. A `.env.example` file is included in the repo.
+
 **Codegen (CI only):**
 
 | Variable | Required | Default | Description |
@@ -194,6 +196,7 @@ On initial authorization, the server requests all 19 Spotify API scopes upfront.
 
 ```
 spotify-mcp-go/
+├── .env.example                 # Example environment variables
 ├── .ko.yaml                     # ko build config
 ├── oapi-codegen.yaml            # oapi-codegen config for Spotify client generation
 ├── cmd/
@@ -250,6 +253,13 @@ spotify-mcp-go/
 ### Local binary
 
 ```bash
+# Option 1: .env file
+cp .env.example .env
+# Edit .env with your Spotify credentials
+make build
+./bin/spotify-mcp-go
+
+# Option 2: environment variables
 export SPOTIFY_CLIENT_ID=your_client_id
 export SPOTIFY_CLIENT_SECRET=your_client_secret
 make build
@@ -259,9 +269,8 @@ make build
 ### Container (ko)
 
 ```bash
-export SPOTIFY_CLIENT_ID=your_client_id
-export SPOTIFY_CLIENT_SECRET=your_client_secret
 make docker  # builds with ko
+# Run with .env file or pass env vars to the container
 ```
 
 ### MCP client configuration
