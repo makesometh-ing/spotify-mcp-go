@@ -139,6 +139,16 @@ func TestToolGenScopes(t *testing.T) {
 	assert.Contains(t, code, "user-read-playback-state")
 }
 
+func TestToolGenAllScopesFunction(t *testing.T) {
+	ops := parseFixtureOps(t)
+	code, err := GenerateTools(ops, "tools")
+	require.NoError(t, err)
+
+	// AllScopes() must exist and return deduplicated, sorted scopes
+	assert.Contains(t, code, "func AllScopes() []string")
+	assert.Contains(t, code, "sort.Strings")
+}
+
 func TestToolGenExcludesDeprecated(t *testing.T) {
 	ops := parseFixtureOps(t)
 	code, err := GenerateTools(ops, "tools")

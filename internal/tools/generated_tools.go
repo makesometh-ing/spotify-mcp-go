@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
@@ -1607,4 +1608,159 @@ func AllRegistrations() []ToolRegistration {
 		{Tool: TransferAUsersPlaybackTool, NewHandler: NewTransferAUsersPlaybackHandler},
 		{Tool: UploadCustomPlaylistCoverTool, NewHandler: NewUploadCustomPlaylistCoverHandler},
 	}
+}
+
+// AllScopes returns the deduplicated, sorted union of all OAuth scopes required by all tools.
+func AllScopes() []string {
+	seen := make(map[string]bool)
+	for _, s := range AddItemsToPlaylistToolScopes {
+		seen[s] = true
+	}
+	for _, s := range AddToQueueToolScopes {
+		seen[s] = true
+	}
+	for _, s := range ChangePlaylistDetailsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range CheckLibraryContainsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range CreatePlaylistToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAChapterToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAListOfCurrentUsersPlaylistsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAShowToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAShowsEpisodesToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAUsersAvailableDevicesToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAnAlbumToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAnAlbumsTracksToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAnArtistToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAnArtistsAlbumsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAnAudiobookToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAnEpisodeToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetAudiobookChaptersToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetCurrentUsersProfileToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetFollowedToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetInformationAboutTheUsersCurrentPlaybackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetPlaylistToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetPlaylistCoverToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetPlaylistsItemsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetQueueToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetRecentlyPlayedToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetTheUsersCurrentlyPlayingTrackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetTrackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetUsersSavedAlbumsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetUsersSavedAudiobooksToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetUsersSavedEpisodesToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetUsersSavedShowsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetUsersSavedTracksToolScopes {
+		seen[s] = true
+	}
+	for _, s := range GetUsersTopArtistsAndTracksToolScopes {
+		seen[s] = true
+	}
+	for _, s := range PauseAUsersPlaybackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range RemoveItemsPlaylistToolScopes {
+		seen[s] = true
+	}
+	for _, s := range RemoveLibraryItemsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range ReorderOrReplacePlaylistsItemsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range SaveLibraryItemsToolScopes {
+		seen[s] = true
+	}
+	for _, s := range SearchToolScopes {
+		seen[s] = true
+	}
+	for _, s := range SeekToPositionInCurrentlyPlayingTrackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range SetRepeatModeOnUsersPlaybackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range SetVolumeForUsersPlaybackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range SkipUsersPlaybackToNextTrackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range SkipUsersPlaybackToPreviousTrackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range StartAUsersPlaybackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range ToggleShuffleForUsersPlaybackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range TransferAUsersPlaybackToolScopes {
+		seen[s] = true
+	}
+	for _, s := range UploadCustomPlaylistCoverToolScopes {
+		seen[s] = true
+	}
+	result := make([]string, 0, len(seen))
+	for s := range seen {
+		result = append(result, s)
+	}
+	sort.Strings(result)
+	return result
 }
