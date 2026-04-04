@@ -55,8 +55,8 @@ The server reads from a `.env` file in the working directory if present, with en
 
 On startup, the server must print:
 
-1. The MCP endpoint URL (e.g., `http://localhost:8080/mcp`)
-2. The callback URL that must be registered in the user's Spotify app (e.g., `http://localhost:8080/callback`)
+1. The MCP endpoint URL (e.g., `http://127.0.0.1:8080/mcp`)
+2. The callback URL that must be registered in the user's Spotify app (e.g., `http://127.0.0.1:8080/callback`)
 3. A message directing the user to configure this callback URL in their Spotify Developer Dashboard at https://developer.spotify.com/dashboard under their app's Redirect URIs settings
 4. Whether `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` are set (fail fast if missing)
 
@@ -323,7 +323,7 @@ For pure logic that doesn't need external dependencies:
 
 Users must register a Spotify app at https://developer.spotify.com/dashboard and configure:
 
-1. A **Redirect URI** pointing to the MCP server's callback endpoint (e.g., `http://localhost:8080/callback`)
+1. A **Redirect URI** pointing to the MCP server's callback endpoint (e.g., `http://127.0.0.1:8080/callback`)
 2. Copy the **Client ID** and **Client Secret** from the app dashboard
 
 The server prints the exact callback URL on startup so the user knows what to register.
@@ -359,7 +359,7 @@ Example for Claude Desktop (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "spotify": {
-      "url": "http://localhost:8080/mcp"
+      "url": "http://127.0.0.1:8080/mcp"
     }
   }
 }

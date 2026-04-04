@@ -68,8 +68,8 @@ func loadConfig(envFilePath string) (*serverConfig, error) {
 }
 
 func printStartupInfo(out io.Writer, port string) {
-	_, _ = fmt.Fprintf(out, "MCP endpoint: http://localhost:%s/mcp\n", port)
-	_, _ = fmt.Fprintf(out, "Callback URL: http://localhost:%s/callback\n", port)
+	_, _ = fmt.Fprintf(out, "MCP endpoint: http://127.0.0.1:%s/mcp\n", port)
+	_, _ = fmt.Fprintf(out, "Callback URL: http://127.0.0.1:%s/callback\n", port)
 	_, _ = fmt.Fprintf(out, "SPOTIFY_CLIENT_ID: set\n")
 	_, _ = fmt.Fprintf(out, "SPOTIFY_CLIENT_SECRET: set\n")
 	_, _ = fmt.Fprintf(out, "\nConfigure the callback URL above as a Redirect URI in your Spotify Developer Dashboard at https://developer.spotify.com/dashboard\n")
@@ -120,7 +120,7 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 	addr := listener.Addr().String()
 	_, port, _ := net.SplitHostPort(addr)
 
-	authHandler.SetBaseURL("http://localhost:" + port)
+	authHandler.SetBaseURL("http://127.0.0.1:" + port)
 	printStartupInfo(out, port)
 
 	if addrCh != nil {

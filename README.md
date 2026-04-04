@@ -54,7 +54,7 @@ go install github.com/makesometh-ing/spotify-mcp-go/cmd/server@latest
 
 1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
 2. Click "Create App"
-3. Set the **Redirect URI** to `http://localhost:8080/callback`
+3. Set the **Redirect URI** to `http://127.0.0.1:8080/callback`
 4. Copy your **Client ID** and **Client Secret**
 
 ### 2. Configure the server
@@ -86,7 +86,7 @@ spotify-mcp-go
 
 ## Client configuration
 
-Point your client at `http://localhost:8080/mcp`. OAuth happens automatically in the browser on first connect.
+Point your client at `http://127.0.0.1:8080/mcp`. OAuth happens automatically in the browser on first connect.
 
 ### Claude Desktop
 
@@ -96,7 +96,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "spotify": {
-      "url": "http://localhost:8080/mcp"
+      "url": "http://127.0.0.1:8080/mcp"
     }
   }
 }
@@ -105,12 +105,12 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ### Claude Code
 
 ```bash
-claude mcp add spotify --transport http http://localhost:8080/mcp
+claude mcp add spotify --transport http http://127.0.0.1:8080/mcp
 ```
 
 ### Cursor
 
-Settings > MCP Servers > Add Server. Name: `spotify`, URL: `http://localhost:8080/mcp`.
+Settings > MCP Servers > Add Server. Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
 
 ### Windsurf
 
@@ -120,7 +120,7 @@ Add to your MCP configuration:
 {
   "mcpServers": {
     "spotify": {
-      "serverUrl": "http://localhost:8080/mcp"
+      "serverUrl": "http://127.0.0.1:8080/mcp"
     }
   }
 }
@@ -129,7 +129,7 @@ Add to your MCP configuration:
 ### Codex CLI
 
 ```bash
-codex mcp add spotify http://localhost:8080/mcp
+codex mcp add spotify http://127.0.0.1:8080/mcp
 ```
 
 ### Other clients

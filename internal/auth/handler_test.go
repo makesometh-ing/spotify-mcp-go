@@ -35,7 +35,7 @@ func setupTestHandler(t *testing.T) (*httptest.Server, *Handler) {
 func registerClient(t *testing.T, ts *httptest.Server) string {
 	t.Helper()
 	reqBody, _ := json.Marshal(map[string]any{
-		"redirect_uris": []string{"http://localhost:9999/callback"},
+		"redirect_uris": []string{"http://127.0.0.1:9999/callback"},
 	})
 	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader(reqBody))
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestAuthorizeRedirectsToSpotify(t *testing.T) {
 
 	u := ts.URL + "/authorize?" + url.Values{
 		"client_id":             {clientID},
-		"redirect_uri":          {"http://localhost:9999/callback"},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
 		"code_challenge":        {"test-challenge"},
 		"code_challenge_method": {"S256"},
 		"response_type":         {"code"},
@@ -212,7 +212,7 @@ func TestAuthorizeStoresPendingState(t *testing.T) {
 
 	u := ts.URL + "/authorize?" + url.Values{
 		"client_id":             {clientID},
-		"redirect_uri":          {"http://localhost:9999/callback"},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
 		"code_challenge":        {"test-challenge"},
 		"code_challenge_method": {"S256"},
 		"response_type":         {"code"},
@@ -229,7 +229,7 @@ func TestAuthorizeStoresPendingState(t *testing.T) {
 	pending, ok := h.GetPendingAuth(state)
 	require.True(t, ok)
 	assert.Equal(t, clientID, pending.ClientID)
-	assert.Equal(t, "http://localhost:9999/callback", pending.RedirectURI)
+	assert.Equal(t, "http://127.0.0.1:9999/callback", pending.RedirectURI)
 	assert.Equal(t, "test-challenge", pending.CodeChallenge)
 	assert.NotEmpty(t, pending.SpotifyVerifier)
 }
@@ -238,7 +238,7 @@ func TestAuthorizeMissingClientID(t *testing.T) {
 	ts, _ := setupTestHandler(t)
 
 	u := ts.URL + "/authorize?" + url.Values{
-		"redirect_uri":          {"http://localhost:9999/callback"},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
 		"code_challenge":        {"test-challenge"},
 		"code_challenge_method": {"S256"},
 		"response_type":         {"code"},
@@ -256,7 +256,7 @@ func TestAuthorizeUnregisteredClientID(t *testing.T) {
 
 	u := ts.URL + "/authorize?" + url.Values{
 		"client_id":             {"unknown-client"},
-		"redirect_uri":          {"http://localhost:9999/callback"},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
 		"code_challenge":        {"test-challenge"},
 		"code_challenge_method": {"S256"},
 		"response_type":         {"code"},
@@ -334,7 +334,7 @@ func setupCallbackTest(t *testing.T) (ts *httptest.Server, h *Handler, mock *moc
 	client := noRedirectClient()
 	u := ts.URL + "/authorize?" + url.Values{
 		"client_id":             {clientID},
-		"redirect_uri":          {"http://localhost:9999/callback"},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
 		"code_challenge":        {"test-challenge"},
 		"code_challenge_method": {"S256"},
 		"response_type":         {"code"},
@@ -423,7 +423,7 @@ func TestCallbackRedirectsWithMCPCode(t *testing.T) {
 
 	loc, err := url.Parse(resp.Header.Get("Location"))
 	require.NoError(t, err)
-	assert.Equal(t, "localhost:9999", loc.Host)
+	assert.Equal(t, "127.0.0.1:9999", loc.Host)
 	assert.Equal(t, "/callback", loc.Path)
 	assert.NotEmpty(t, loc.Query().Get("code"), "should include MCP auth code")
 }
@@ -511,7 +511,7 @@ func setupTokenTest(t *testing.T) (ts *httptest.Server, h *Handler, mcpCode stri
 	client := noRedirectClient()
 	u := ts.URL + "/authorize?" + url.Values{
 		"client_id":             {clientID},
-		"redirect_uri":          {"http://localhost:9999/callback"},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
 		"response_type":         {"code"},
@@ -946,7 +946,7 @@ func TestRegisterParsesRequestBody(t *testing.T) {
 	ts, h := setupTestHandler(t)
 
 	reqBody := map[string]any{
-		"redirect_uris":              []string{"http://localhost:9999/callback"},
+		"redirect_uris":              []string{"http://127.0.0.1:9999/callback"},
 		"grant_types":                []string{"authorization_code", "refresh_token"},
 		"response_types":             []string{"code"},
 		"token_endpoint_auth_method": "none",
@@ -974,7 +974,7 @@ func TestRegisterParsesRequestBody(t *testing.T) {
 
 	redirectURIs, ok := respBody["redirect_uris"].([]any)
 	require.True(t, ok, "response must echo redirect_uris")
-	assert.Equal(t, []any{"http://localhost:9999/callback"}, redirectURIs)
+	assert.Equal(t, []any{"http://127.0.0.1:9999/callback"}, redirectURIs)
 
 	grantTypes, ok := respBody["grant_types"].([]any)
 	require.True(t, ok, "response must echo grant_types")
@@ -991,7 +991,7 @@ func TestRegisterParsesRequestBody(t *testing.T) {
 	record, err := h.store.Load(t.Context(), clientID)
 	require.NoError(t, err)
 	require.NotNil(t, record)
-	assert.Equal(t, []string{"http://localhost:9999/callback"}, record.RedirectURIs)
+	assert.Equal(t, []string{"http://127.0.0.1:9999/callback"}, record.RedirectURIs)
 	assert.Equal(t, "Test MCP Client", record.ClientName)
 }
 
@@ -1000,7 +1000,7 @@ func TestRegisterAppliesRFC7591Defaults(t *testing.T) {
 
 	// Send only redirect_uris, omit optional fields
 	reqBody := map[string]any{
-		"redirect_uris": []string{"http://localhost:9999/callback"},
+		"redirect_uris": []string{"http://127.0.0.1:9999/callback"},
 	}
 	body, _ := json.Marshal(reqBody)
 
@@ -1069,7 +1069,7 @@ func TestAuthorizeValidatesRedirectURI(t *testing.T) {
 
 	// Register with specific redirect_uris
 	reqBody := map[string]any{
-		"redirect_uris": []string{"http://localhost:9999/callback"},
+		"redirect_uris": []string{"http://127.0.0.1:9999/callback"},
 	}
 	body, _ := json.Marshal(reqBody)
 	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader(body))
@@ -1084,7 +1084,7 @@ func TestAuthorizeValidatesRedirectURI(t *testing.T) {
 	// Valid redirect_uri should succeed
 	u := ts.URL + "/authorize?" + url.Values{
 		"client_id":             {clientID},
-		"redirect_uri":          {"http://localhost:9999/callback"},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
 		"code_challenge":        {"test-challenge"},
 		"code_challenge_method": {"S256"},
 		"response_type":         {"code"},
