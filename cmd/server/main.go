@@ -16,7 +16,7 @@ func main() {
 	flag.Parse()
 
 	logger := newLogger(*debug)
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	cfg, err := loadConfig(".env")
 	if err != nil {
