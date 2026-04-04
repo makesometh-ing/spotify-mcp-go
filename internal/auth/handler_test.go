@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -30,10 +31,13 @@ func setupTestHandler(t *testing.T) (*httptest.Server, *Handler) {
 	return ts, h
 }
 
-// registerClient registers a new client and returns the client_id.
+// registerClient registers a new client with redirect_uris and returns the client_id.
 func registerClient(t *testing.T, ts *httptest.Server) string {
 	t.Helper()
-	resp, err := http.Post(ts.URL+"/register", "application/json", nil)
+	reqBody, _ := json.Marshal(map[string]any{
+		"redirect_uris": []string{"http://localhost:9999/callback"},
+	})
+	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader(reqBody))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	var body map[string]any
@@ -916,4 +920,190 @@ func TestAuthMiddlewareWrongScheme(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	assert.False(t, recorder.called)
+}
+
+// --- RFC 8414: Authorization Server Metadata conformance ---
+
+func TestAuthorizationServerMetadataIncludesTokenEndpointAuthMethods(t *testing.T) {
+	ts, _ := setupTestHandler(t)
+
+	resp, err := http.Get(ts.URL + "/.well-known/oauth-authorization-server")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	var body map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&body)
+	require.NoError(t, err)
+
+	methods, ok := body["token_endpoint_auth_methods_supported"].([]any)
+	require.True(t, ok, "token_endpoint_auth_methods_supported should be an array")
+	assert.Equal(t, []any{"none"}, methods)
+}
+
+// --- RFC 7591: Dynamic Client Registration conformance ---
+
+func TestRegisterParsesRequestBody(t *testing.T) {
+	ts, h := setupTestHandler(t)
+
+	reqBody := map[string]any{
+		"redirect_uris":              []string{"http://localhost:9999/callback"},
+		"grant_types":                []string{"authorization_code", "refresh_token"},
+		"response_types":             []string{"code"},
+		"token_endpoint_auth_method": "none",
+		"client_name":                "Test MCP Client",
+	}
+	body, _ := json.Marshal(reqBody)
+
+	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var respBody map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	require.NoError(t, err)
+
+	// Response MUST echo back all registered metadata
+	clientID, ok := respBody["client_id"].(string)
+	require.True(t, ok)
+	assert.NotEmpty(t, clientID)
+
+	_, ok = respBody["client_id_issued_at"].(float64)
+	require.True(t, ok)
+
+	redirectURIs, ok := respBody["redirect_uris"].([]any)
+	require.True(t, ok, "response must echo redirect_uris")
+	assert.Equal(t, []any{"http://localhost:9999/callback"}, redirectURIs)
+
+	grantTypes, ok := respBody["grant_types"].([]any)
+	require.True(t, ok, "response must echo grant_types")
+	assert.Equal(t, []any{"authorization_code", "refresh_token"}, grantTypes)
+
+	responseTypes, ok := respBody["response_types"].([]any)
+	require.True(t, ok, "response must echo response_types")
+	assert.Equal(t, []any{"code"}, responseTypes)
+
+	assert.Equal(t, "none", respBody["token_endpoint_auth_method"])
+	assert.Equal(t, "Test MCP Client", respBody["client_name"])
+
+	// Verify stored in token store
+	record, err := h.store.Load(t.Context(), clientID)
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	assert.Equal(t, []string{"http://localhost:9999/callback"}, record.RedirectURIs)
+	assert.Equal(t, "Test MCP Client", record.ClientName)
+}
+
+func TestRegisterAppliesRFC7591Defaults(t *testing.T) {
+	ts, _ := setupTestHandler(t)
+
+	// Send only redirect_uris, omit optional fields
+	reqBody := map[string]any{
+		"redirect_uris": []string{"http://localhost:9999/callback"},
+	}
+	body, _ := json.Marshal(reqBody)
+
+	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var respBody map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	require.NoError(t, err)
+
+	// RFC 7591 Section 2 defaults
+	grantTypes, ok := respBody["grant_types"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"authorization_code"}, grantTypes, "default grant_types per RFC 7591")
+
+	responseTypes, ok := respBody["response_types"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"code"}, responseTypes, "default response_types per RFC 7591")
+
+	assert.Equal(t, "none", respBody["token_endpoint_auth_method"],
+		"default to none for public PKCE clients")
+}
+
+func TestRegisterEmptyBodyStillWorks(t *testing.T) {
+	ts, _ := setupTestHandler(t)
+
+	// Empty JSON body (or no body at all) should still register successfully
+	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader([]byte("{}")))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var respBody map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, respBody["client_id"])
+	assert.NotNil(t, respBody["client_id_issued_at"])
+}
+
+func TestRegisterNilBodyStillWorks(t *testing.T) {
+	ts, _ := setupTestHandler(t)
+
+	// nil body (backwards compat with existing clients)
+	resp, err := http.Post(ts.URL+"/register", "application/json", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var respBody map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, respBody["client_id"])
+}
+
+// --- /authorize redirect_uri validation ---
+
+func TestAuthorizeValidatesRedirectURI(t *testing.T) {
+	ts, _ := setupTestHandler(t)
+
+	// Register with specific redirect_uris
+	reqBody := map[string]any{
+		"redirect_uris": []string{"http://localhost:9999/callback"},
+	}
+	body, _ := json.Marshal(reqBody)
+	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var regResp map[string]any
+	json.NewDecoder(resp.Body).Decode(&regResp)
+	clientID := regResp["client_id"].(string)
+
+	client := noRedirectClient()
+
+	// Valid redirect_uri should succeed
+	u := ts.URL + "/authorize?" + url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {"http://localhost:9999/callback"},
+		"code_challenge":        {"test-challenge"},
+		"code_challenge_method": {"S256"},
+		"response_type":         {"code"},
+	}.Encode()
+	validResp, err := client.Get(u)
+	require.NoError(t, err)
+	defer validResp.Body.Close()
+	assert.Equal(t, http.StatusFound, validResp.StatusCode, "registered redirect_uri should be accepted")
+
+	// Invalid redirect_uri should be rejected
+	u2 := ts.URL + "/authorize?" + url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {"http://evil.com/steal"},
+		"code_challenge":        {"test-challenge"},
+		"code_challenge_method": {"S256"},
+		"response_type":         {"code"},
+	}.Encode()
+	invalidResp, err := client.Get(u2)
+	require.NoError(t, err)
+	defer invalidResp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, invalidResp.StatusCode, "unregistered redirect_uri must be rejected")
 }

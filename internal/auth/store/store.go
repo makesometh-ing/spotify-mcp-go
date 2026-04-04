@@ -15,6 +15,13 @@ type TokenRecord struct {
 	MCPRefreshToken     string
 	MCPTokenExpiry      time.Time
 	CreatedAt           time.Time
+
+	// Registration metadata (RFC 7591)
+	RedirectURIs            []string
+	GrantTypes              []string
+	ResponseTypes           []string
+	TokenEndpointAuthMethod string
+	ClientName              string
 }
 
 // TokenStore persists token records keyed by MCP client ID.

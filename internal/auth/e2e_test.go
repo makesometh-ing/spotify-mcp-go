@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,7 +41,10 @@ func TestE2EOAuthFlow(t *testing.T) {
 	noFollow := noRedirectClient()
 
 	// --- Step 1: POST /register → receive client_id ---
-	resp, err := http.Post(ts.URL+"/register", "application/json", nil)
+	regReq, _ := json.Marshal(map[string]any{
+		"redirect_uris": []string{"http://test-client/callback"},
+	})
+	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader(regReq))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)

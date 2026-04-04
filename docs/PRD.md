@@ -89,8 +89,8 @@ All served on the same host:port as the MCP endpoint. MCP clients discover the a
 |---|---|---|
 | `/mcp` | POST | MCP streamable HTTP endpoint. Returns 401 if unauthenticated. |
 | `/.well-known/oauth-protected-resource` | GET | RFC 9728 Protected Resource Metadata. Points to self as authorization server. |
-| `/.well-known/oauth-authorization-server` | GET | RFC 8414 Authorization Server Metadata. Advertises authorize/token/register endpoints, PKCE required (S256), grant types `authorization_code` and `refresh_token`. |
-| `/register` | POST | RFC 7591 Dynamic Client Registration. Issues a unique client_id per MCP client. |
+| `/.well-known/oauth-authorization-server` | GET | RFC 8414 Authorization Server Metadata. Advertises authorize/token/register endpoints, PKCE required (S256), grant types `authorization_code` and `refresh_token`, `token_endpoint_auth_methods_supported: ["none"]`. |
+| `/register` | POST | RFC 7591 Dynamic Client Registration. Accepts JSON body with `redirect_uris`, `grant_types`, `response_types`, `token_endpoint_auth_method`, `client_name`. Issues a unique `client_id` and echoes back all registered metadata. |
 | `/authorize` | GET | Redirects user to Spotify's authorize endpoint with server's Spotify credentials. |
 | `/callback` | GET | Receives Spotify's OAuth callback after user login. |
 | `/token` | POST | Proxies token exchange and refresh to Spotify. Issues MCP tokens to clients. |
@@ -100,8 +100,8 @@ All served on the same host:port as the MCP endpoint. MCP clients discover the a
 1. MCP client hits `POST /mcp`, gets 401.
 2. Client fetches `GET /.well-known/oauth-protected-resource` from the same origin as the MCP server URL. This returns `authorization_servers` pointing to the same origin.
 3. Client fetches `GET /.well-known/oauth-authorization-server` to discover endpoints.
-4. Client registers via `POST /register`, receives a unique `client_id`.
-5. Client sends user to `GET /authorize?redirect_uri=...&code_challenge=...&client_id=...`.
+4. Client registers via `POST /register` with a JSON body containing `redirect_uris` and optionally `grant_types`, `response_types`, `token_endpoint_auth_method`, `client_name`. Receives a unique `client_id` and all registered metadata echoed back per RFC 7591. Defaults: `grant_types=["authorization_code"]`, `response_types=["code"]`, `token_endpoint_auth_method="none"`.
+5. Client sends user to `GET /authorize?redirect_uri=...&code_challenge=...&client_id=...`. The server validates that `redirect_uri` matches one of the URIs registered in step 4.
 6. Server redirects to `https://accounts.spotify.com/authorize` with its own `SPOTIFY_CLIENT_ID`, a server-side callback URI (`/callback`), PKCE code_challenge (S256), and all Spotify scopes. Server stores the client's PKCE state, redirect_uri, and client_id for the pending auth.
 7. User logs in at Spotify, grants permissions.
 8. Spotify redirects to `GET /callback?code=...&state=...`.
@@ -128,6 +128,11 @@ client_id -> {
     mcp_refresh_token
     mcp_token_expiry
     created_at
+    redirect_uris              # RFC 7591 registration metadata
+    grant_types
+    response_types
+    token_endpoint_auth_method
+    client_name
 }
 ```
 

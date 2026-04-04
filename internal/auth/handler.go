@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -359,19 +360,45 @@ func (h *Handler) handleProtectedResource(w http.ResponseWriter, r *http.Request
 func (h *Handler) handleAuthorizationServer(w http.ResponseWriter, r *http.Request) {
 	base := h.getBaseURL()
 	resp := map[string]any{
-		"issuer":                           base,
-		"authorization_endpoint":           base + "/authorize",
-		"token_endpoint":                   base + "/token",
-		"registration_endpoint":            base + "/register",
-		"response_types_supported":         []string{"code"},
-		"grant_types_supported":            []string{"authorization_code", "refresh_token"},
-		"code_challenge_methods_supported": []string{"S256"},
+		"issuer":                                base,
+		"authorization_endpoint":                base + "/authorize",
+		"token_endpoint":                        base + "/token",
+		"registration_endpoint":                 base + "/register",
+		"response_types_supported":              []string{"code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"code_challenge_methods_supported":      []string{"S256"},
+		"token_endpoint_auth_methods_supported": []string{"none"},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// registrationRequest holds the parsed RFC 7591 registration request body.
+type registrationRequest struct {
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	ClientName              string   `json:"client_name"`
+}
+
 func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
+	var req registrationRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	// Apply RFC 7591 Section 2 defaults
+	if len(req.GrantTypes) == 0 {
+		req.GrantTypes = []string{"authorization_code"}
+	}
+	if len(req.ResponseTypes) == 0 {
+		req.ResponseTypes = []string{"code"}
+	}
+	if req.TokenEndpointAuthMethod == "" {
+		req.TokenEndpointAuthMethod = "none"
+	}
+
 	clientID, err := GenerateToken()
 	if err != nil {
 		http.Error(w, "failed to generate client_id", http.StatusInternalServerError)
@@ -380,7 +407,12 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	record := &store.TokenRecord{
-		CreatedAt: now,
+		CreatedAt:               now,
+		RedirectURIs:            req.RedirectURIs,
+		GrantTypes:              req.GrantTypes,
+		ResponseTypes:           req.ResponseTypes,
+		TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
+		ClientName:              req.ClientName,
 	}
 	if err := h.store.Store(r.Context(), clientID, record); err != nil {
 		http.Error(w, "failed to store client registration", http.StatusInternalServerError)
@@ -388,9 +420,19 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]any{
-		"client_id":           clientID,
-		"client_id_issued_at": now.Unix(),
+		"client_id":                  clientID,
+		"client_id_issued_at":        now.Unix(),
+		"grant_types":                req.GrantTypes,
+		"response_types":             req.ResponseTypes,
+		"token_endpoint_auth_method": req.TokenEndpointAuthMethod,
 	}
+	if len(req.RedirectURIs) > 0 {
+		resp["redirect_uris"] = req.RedirectURIs
+	}
+	if req.ClientName != "" {
+		resp["client_name"] = req.ClientName
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(resp)
@@ -410,6 +452,13 @@ func (h *Handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	redirectURI := r.URL.Query().Get("redirect_uri")
+
+	// Validate redirect_uri against registered URIs (if any were registered)
+	if len(record.RedirectURIs) > 0 && !slices.Contains(record.RedirectURIs, redirectURI) {
+		http.Error(w, "redirect_uri does not match registered URIs", http.StatusBadRequest)
+		return
+	}
+
 	codeChallenge := r.URL.Query().Get("code_challenge")
 
 	// Generate server-side PKCE for Spotify
