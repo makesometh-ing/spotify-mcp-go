@@ -54,13 +54,13 @@ func TestServerStartupListensOnPort(t *testing.T) {
 func TestServerStartupOutputMCPEndpoint(t *testing.T) {
 	var buf bytes.Buffer
 	printStartupInfo(&buf, "8080")
-	assert.Contains(t, buf.String(), "http://localhost:8080/mcp")
+	assert.Contains(t, buf.String(), "http://127.0.0.1:8080/mcp")
 }
 
 func TestServerStartupOutputCallbackURL(t *testing.T) {
 	var buf bytes.Buffer
 	printStartupInfo(&buf, "8080")
-	assert.Contains(t, buf.String(), "http://localhost:8080/callback")
+	assert.Contains(t, buf.String(), "http://127.0.0.1:8080/callback")
 }
 
 func TestServerStartupOutputDashboardInstructions(t *testing.T) {
