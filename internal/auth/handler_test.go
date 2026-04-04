@@ -13,6 +13,9 @@ import (
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func setupTestHandler(t *testing.T) (*httptest.Server, *Handler) {
@@ -517,6 +520,97 @@ func TestCallbackRedirectOmitsStateWhenNotProvided(t *testing.T) {
 	assert.Empty(t, redirectLoc.Query().Get("state"),
 		"callback redirect must NOT include state when client did not send one")
 	assert.NotEmpty(t, redirectLoc.Query().Get("code"))
+}
+
+func TestOAuthFlowLogsEvents(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	logger := zap.New(core).Sugar()
+
+	mock := newMockSpotify(t)
+	tokenStore := store.NewInMemoryTokenStore()
+	h := NewHandler(HandlerConfig{
+		SpotifyClientID:      "test-spotify-client-id",
+		SpotifyClientSecret:  "test-spotify-client-secret",
+		SpotifyScopes:        []string{"user-read-playback-state"},
+		Store:                tokenStore,
+		SpotifyTokenEndpoint: mock.Server.URL,
+		Logger:               logger,
+	})
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	ts := httptest.NewServer(mux)
+	h.SetBaseURL(ts.URL)
+	t.Cleanup(ts.Close)
+
+	client := noRedirectClient()
+
+	// Register
+	regReq, _ := json.Marshal(map[string]any{
+		"redirect_uris": []string{"http://127.0.0.1:9999/callback"},
+	})
+	resp, err := http.Post(ts.URL+"/register", "application/json", bytes.NewReader(regReq))
+	require.NoError(t, err)
+	resp.Body.Close()
+	var regBody map[string]any
+	json.NewDecoder(resp.Body).Decode(&regBody)
+
+	// Get client_id from store (register response body already consumed)
+	// Re-register to get a client_id we can use
+	resp2, err := http.Post(ts.URL+"/register", "application/json",
+		bytes.NewReader(regReq))
+	require.NoError(t, err)
+	defer resp2.Body.Close()
+	json.NewDecoder(resp2.Body).Decode(&regBody)
+	clientID := regBody["client_id"].(string)
+
+	// Generate real PKCE pair
+	codeVerifier, err := GenerateCodeVerifier()
+	require.NoError(t, err)
+	challenge := CodeChallenge(codeVerifier)
+
+	// Authorize
+	authResp, err := client.Get(ts.URL + "/authorize?" + url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
+		"code_challenge":        {challenge},
+		"code_challenge_method": {"S256"},
+		"response_type":         {"code"},
+	}.Encode())
+	require.NoError(t, err)
+	defer authResp.Body.Close()
+	loc, _ := url.Parse(authResp.Header.Get("Location"))
+	state := loc.Query().Get("state")
+
+	// Callback
+	cbResp, err := client.Get(ts.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {state},
+	}.Encode())
+	require.NoError(t, err)
+	defer cbResp.Body.Close()
+	cbLoc, _ := url.Parse(cbResp.Header.Get("Location"))
+	mcpCode := cbLoc.Query().Get("code")
+
+	// Token exchange
+	tokenResp, err := http.PostForm(ts.URL+"/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {mcpCode},
+		"code_verifier": {codeVerifier},
+	})
+	require.NoError(t, err)
+	tokenResp.Body.Close()
+
+	// Verify log messages contain expected OAuth events
+	allMessages := make([]string, 0, logs.Len())
+	for _, entry := range logs.All() {
+		allMessages = append(allMessages, entry.Message)
+	}
+
+	assert.Contains(t, allMessages, "client registered", "should log registration")
+	assert.Contains(t, allMessages, "authorize request", "should log authorize")
+	assert.Contains(t, allMessages, "callback received", "should log callback")
+	assert.Contains(t, allMessages, "spotify token exchange", "should log token exchange")
+	assert.Contains(t, allMessages, "token exchange", "should log MCP token exchange")
 }
 
 func TestCallbackInvalidStateReturns400(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func validConfig(t *testing.T) *serverConfig {
@@ -33,7 +37,7 @@ func TestServerStartupListensOnPort(t *testing.T) {
 	addrCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- run(ctx, cfg, nil, nil, &buf, addrCh)
+		errCh <- run(ctx, cfg, nil, nil, &buf, addrCh, zap.NewNop().Sugar())
 	}()
 
 	select {
@@ -106,6 +110,50 @@ func TestServerStartupEnvFile(t *testing.T) {
 	cfg, err = loadConfig(envFile)
 	require.NoError(t, err)
 	assert.Equal(t, "from-env", cfg.SpotifyClientID)
+}
+
+func TestNewLoggerDebugFalseReturnsNop(t *testing.T) {
+	logger := newLogger(false)
+	defer logger.Sync()
+	// A nop logger's Core is always disabled at every level
+	assert.False(t, logger.Desugar().Core().Enabled(zap.DebugLevel),
+		"nop logger should not be enabled at debug level")
+}
+
+func TestNewLoggerDebugTrueReturnsEnabled(t *testing.T) {
+	logger := newLogger(true)
+	defer logger.Sync()
+	assert.True(t, logger.Desugar().Core().Enabled(zap.DebugLevel),
+		"debug logger should be enabled at debug level")
+}
+
+func TestHTTPLoggingMiddleware(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	logger := zap.New(core).Sugar()
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := httpLoggingMiddleware(logger, inner)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/test-path")
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	require.GreaterOrEqual(t, logs.Len(), 1)
+	entry := logs.All()[0]
+	assert.Equal(t, "http request", entry.Message)
+
+	fields := make(map[string]any)
+	for _, f := range entry.Context {
+		fields[f.Key] = f
+	}
+	assert.Contains(t, fields, "method")
+	assert.Contains(t, fields, "path")
+	assert.Contains(t, fields, "status")
+	assert.Contains(t, fields, "duration")
 }
 
 func TestServerStartupTokenDBOverride(t *testing.T) {

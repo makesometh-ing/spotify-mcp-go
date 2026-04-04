@@ -8,6 +8,7 @@ require (
 	github.com/oapi-codegen/oapi-codegen/v2 v2.6.0
 	github.com/oapi-codegen/runtime v1.3.1
 	github.com/stretchr/testify v1.11.1
+	go.uber.org/zap v1.27.1
 	golang.org/x/sync v0.20.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.48.1
@@ -38,6 +39,7 @@ require (
 	github.com/vmware-labs/yaml-jsonpath v0.3.2 // indirect
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.21.0 // indirect

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,6 +12,12 @@ import (
 )
 
 func main() {
+	debug := flag.Bool("debug", false, "Enable debug logging to stderr")
+	flag.Parse()
+
+	logger := newLogger(*debug)
+	defer logger.Sync()
+
 	cfg, err := loadConfig(".env")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
@@ -20,7 +27,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	if err := run(ctx, cfg, tools.AllRegistrations(), tools.AllScopes(), os.Stdout, nil); err != nil {
+	if err := run(ctx, cfg, tools.AllRegistrations(), tools.AllScopes(), os.Stdout, nil, logger); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
 	}

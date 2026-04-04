@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth"
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
@@ -156,7 +157,7 @@ func TestCodegenE2EFullPipeline(t *testing.T) {
 	addrCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- run(serverCtx, cfg, testToolRegs(), io.Discard, addrCh)
+		errCh <- run(serverCtx, cfg, testToolRegs(), nil, io.Discard, addrCh, zap.NewNop().Sugar())
 	}()
 
 	var serverAddr string
