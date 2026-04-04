@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -57,19 +58,19 @@ func TestServerStartupListensOnPort(t *testing.T) {
 
 func TestServerStartupOutputMCPEndpoint(t *testing.T) {
 	var buf bytes.Buffer
-	printStartupInfo(&buf, "8080")
+	printStartupInfo(&buf, "8080", "")
 	assert.Contains(t, buf.String(), "http://127.0.0.1:8080/mcp")
 }
 
 func TestServerStartupOutputCallbackURL(t *testing.T) {
 	var buf bytes.Buffer
-	printStartupInfo(&buf, "8080")
+	printStartupInfo(&buf, "8080", "")
 	assert.Contains(t, buf.String(), "http://127.0.0.1:8080/callback")
 }
 
 func TestServerStartupOutputDashboardInstructions(t *testing.T) {
 	var buf bytes.Buffer
-	printStartupInfo(&buf, "8080")
+	printStartupInfo(&buf, "8080", "")
 	output := buf.String()
 	assert.Contains(t, output, "Spotify Developer Dashboard")
 	assert.Contains(t, output, "https://developer.spotify.com/dashboard")
@@ -154,6 +155,108 @@ func TestHTTPLoggingMiddleware(t *testing.T) {
 	assert.Contains(t, fields, "path")
 	assert.Contains(t, fields, "status")
 	assert.Contains(t, fields, "duration")
+}
+
+func TestBaseURLConfigDefault(t *testing.T) {
+	t.Setenv("SPOTIFY_CLIENT_ID", "test-id")
+	t.Setenv("SPOTIFY_CLIENT_SECRET", "test-secret")
+	t.Setenv("SPOTIFY_MCP_BASE_URL", "")
+
+	cfg, err := loadConfig("")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.BaseURL, "base URL should be empty when not configured")
+}
+
+func TestBaseURLConfigSet(t *testing.T) {
+	t.Setenv("SPOTIFY_CLIENT_ID", "test-id")
+	t.Setenv("SPOTIFY_CLIENT_SECRET", "test-secret")
+	t.Setenv("SPOTIFY_MCP_BASE_URL", "https://spotify-mcp.example.com")
+
+	cfg, err := loadConfig("")
+	require.NoError(t, err)
+	assert.Equal(t, "https://spotify-mcp.example.com", cfg.BaseURL)
+}
+
+func TestBaseURLUsedInWellKnown(t *testing.T) {
+	cfg := validConfig(t)
+	cfg.BaseURL = "https://spotify-mcp.example.com"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var buf bytes.Buffer
+	addrCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cfg, nil, nil, &buf, addrCh, zap.NewNop().Sugar())
+	}()
+
+	select {
+	case addr := <-addrCh:
+		// Well-known metadata should use configured base URL
+		resp, err := http.Get("http://" + addr + "/.well-known/oauth-protected-resource")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		var body map[string]any
+		json.NewDecoder(resp.Body).Decode(&body)
+		assert.Equal(t, "https://spotify-mcp.example.com", body["resource"])
+
+		servers, ok := body["authorization_servers"].([]any)
+		require.True(t, ok)
+		assert.Equal(t, "https://spotify-mcp.example.com", servers[0])
+	case err := <-errCh:
+		t.Fatalf("server exited early: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server")
+	}
+}
+
+func TestBaseURLDefaultFallback(t *testing.T) {
+	cfg := validConfig(t)
+	// BaseURL empty = default to 127.0.0.1:<port>
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var buf bytes.Buffer
+	addrCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cfg, nil, nil, &buf, addrCh, zap.NewNop().Sugar())
+	}()
+
+	select {
+	case addr := <-addrCh:
+		resp, err := http.Get("http://" + addr + "/.well-known/oauth-protected-resource")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		var body map[string]any
+		json.NewDecoder(resp.Body).Decode(&body)
+		// Should default to http://127.0.0.1:<port>
+		assert.Contains(t, body["resource"].(string), "http://127.0.0.1:")
+	case err := <-errCh:
+		t.Fatalf("server exited early: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server")
+	}
+}
+
+func TestBaseURLStartupOutput(t *testing.T) {
+	var buf bytes.Buffer
+	printStartupInfo(&buf, "8080", "https://spotify-mcp.example.com")
+	output := buf.String()
+	assert.Contains(t, output, "https://spotify-mcp.example.com/mcp")
+	assert.Contains(t, output, "https://spotify-mcp.example.com/callback")
+}
+
+func TestBaseURLStartupOutputDefault(t *testing.T) {
+	var buf bytes.Buffer
+	printStartupInfo(&buf, "8080", "")
+	output := buf.String()
+	assert.Contains(t, output, "http://127.0.0.1:8080/mcp")
+	assert.Contains(t, output, "http://127.0.0.1:8080/callback")
 }
 
 func TestServerStartupTokenDBOverride(t *testing.T) {

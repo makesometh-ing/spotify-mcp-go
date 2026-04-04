@@ -24,6 +24,7 @@ type serverConfig struct {
 	SpotifyClientID      string
 	SpotifyClientSecret  string
 	TokenDBPath          string
+	BaseURL              string // SPOTIFY_MCP_BASE_URL; empty = http://127.0.0.1:<port>
 	SpotifyTokenEndpoint string // override for testing; empty = Spotify default
 	SpotifyAPIBaseURL    string // override for testing; empty = https://api.spotify.com
 }
@@ -57,6 +58,7 @@ func loadConfig(envFilePath string) (*serverConfig, error) {
 		SpotifyClientID:     get("SPOTIFY_CLIENT_ID", ""),
 		SpotifyClientSecret: get("SPOTIFY_CLIENT_SECRET", ""),
 		TokenDBPath:         get("SPOTIFY_MCP_TOKEN_DB", "~/.config/spotify-mcp-go/auth/tokens.db"),
+		BaseURL:             get("SPOTIFY_MCP_BASE_URL", ""),
 	}
 
 	if cfg.SpotifyClientID == "" {
@@ -86,9 +88,13 @@ func newLogger(debug bool) *zap.SugaredLogger {
 	return logger.Sugar()
 }
 
-func printStartupInfo(out io.Writer, port string) {
-	_, _ = fmt.Fprintf(out, "MCP endpoint: http://127.0.0.1:%s/mcp\n", port)
-	_, _ = fmt.Fprintf(out, "Callback URL: http://127.0.0.1:%s/callback\n", port)
+func printStartupInfo(out io.Writer, port string, baseURL string) {
+	base := baseURL
+	if base == "" {
+		base = "http://127.0.0.1:" + port
+	}
+	_, _ = fmt.Fprintf(out, "MCP endpoint: %s/mcp\n", base)
+	_, _ = fmt.Fprintf(out, "Callback URL: %s/callback\n", base)
 	_, _ = fmt.Fprintf(out, "SPOTIFY_CLIENT_ID: set\n")
 	_, _ = fmt.Fprintf(out, "SPOTIFY_CLIENT_SECRET: set\n")
 	_, _ = fmt.Fprintf(out, "\nConfigure the callback URL above as a Redirect URI in your Spotify Developer Dashboard at https://developer.spotify.com/dashboard\n")
@@ -153,9 +159,13 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 	addr := listener.Addr().String()
 	_, port, _ := net.SplitHostPort(addr)
 
-	authHandler.SetBaseURL("http://127.0.0.1:" + port)
-	printStartupInfo(out, port)
-	logger.Infow("server started", "address", addr)
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:" + port
+	}
+	authHandler.SetBaseURL(baseURL)
+	printStartupInfo(out, port, cfg.BaseURL)
+	logger.Infow("server started", "address", addr, "base_url", baseURL)
 
 	if addrCh != nil {
 		addrCh <- addr

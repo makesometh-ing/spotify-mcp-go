@@ -83,6 +83,18 @@ spotify-mcp-go
 | `SPOTIFY_CLIENT_SECRET` | Yes | | Spotify app client secret |
 | `SPOTIFY_MCP_PORT` | No | `8080` | HTTP server port |
 | `SPOTIFY_MCP_TOKEN_DB` | No | `~/.config/spotify-mcp-go/auth/tokens.db` | SQLite token storage path |
+| `SPOTIFY_MCP_BASE_URL` | No | `http://127.0.0.1:<port>` | Public base URL (for reverse proxy / tunnel / cloud hosting) |
+
+## Public hosting
+
+To host the server publicly (behind a reverse proxy, tunnel, or on a cloud instance), set `SPOTIFY_MCP_BASE_URL` to the public URL:
+
+```bash
+export SPOTIFY_MCP_BASE_URL=https://spotify-mcp.example.com
+spotify-mcp-go
+```
+
+The server will use this URL in all OAuth metadata, callback redirects, and startup output. Register `https://spotify-mcp.example.com/callback` as a Redirect URI in your Spotify Developer Dashboard.
 
 ## Client configuration
 
