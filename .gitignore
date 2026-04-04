@@ -11,6 +11,9 @@ vendor/
 # Environment
 .env
 
+# MCP client config
+.mcp.json
+
 # Linear CLI
 .linear.toml
 
