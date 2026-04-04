@@ -46,6 +46,9 @@ func GenerateTools(ops []Operation, packageName, serverURL string) (string, erro
 				data.HasArrayParams = true
 			}
 		}
+		if td.HasJSONBody {
+			data.HasJSONBody = true
+		}
 	}
 
 	tmpl, err := template.New("tools").Funcs(template.FuncMap{
@@ -72,6 +75,7 @@ type toolsTemplateData struct {
 	ServerURL      string
 	Tools          []toolData
 	HasArrayParams bool
+	HasJSONBody    bool
 }
 
 type toolData struct {
@@ -89,6 +93,7 @@ type toolData struct {
 	Params      []toolParamData
 	PathParams  []toolParamData
 	QueryParams []toolParamData
+	BodyParams  []toolParamData
 }
 
 type toolParamData struct {
@@ -134,6 +139,19 @@ func newToolData(op Operation) toolData {
 		case "query":
 			td.QueryParams = append(td.QueryParams, pd)
 		}
+	}
+
+	for _, f := range op.BodyFields {
+		pd := toolParamData{
+			Name:        f.Name,
+			GoName:      snakeToCamel(f.Name),
+			PascalName:  snakeToPascal(f.Name),
+			MCPType:     mcpType(f.Type),
+			Required:    f.Required,
+			Description: f.Description,
+		}
+		td.BodyParams = append(td.BodyParams, pd)
+		td.Params = append(td.Params, pd)
 	}
 
 	return td
@@ -217,6 +235,9 @@ package {{.PackageName}}
 
 import (
 	"context"
+{{- if .HasJSONBody}}
+	"encoding/json"
+{{- end}}
 	"fmt"
 	"sort"
 {{- if .HasArrayParams}}
@@ -258,9 +279,14 @@ func {{.HandlerName}}(client *spotify.ClientWithResponses) func(context.Context,
 {{- if .QueryParams}}
 		params := &spotify.{{$tool.CamelName}}Params{}
 {{- range .QueryParams}}
-{{- if and .Required .HasEnum (eq .MCPType "Array")}}
-		{
-			raw := req.GetString({{quote .Name}}, "")
+{{- if and .HasEnum (eq .MCPType "Array")}}
+		if arr, ok := req.GetArguments()[{{quote .Name}}].([]interface{}); ok {
+			for _, item := range arr {
+				if s, ok := item.(string); ok && s != "" {
+					params.{{.PascalName}} = append(params.{{.PascalName}}, spotify.{{$tool.CamelName}}Params{{.PascalName}}(s))
+				}
+			}
+		} else if raw := req.GetString({{quote .Name}}, ""); raw != "" {
 			for _, s := range strings.Split(raw, ",") {
 				if t := strings.TrimSpace(s); t != "" {
 					params.{{.PascalName}} = append(params.{{.PascalName}}, spotify.{{$tool.CamelName}}Params{{.PascalName}}(t))
@@ -291,11 +317,31 @@ func {{.HandlerName}}(client *spotify.ClientWithResponses) func(context.Context,
 {{- end}}
 {{- end}}
 {{- end}}
+{{- if .HasJSONBody}}
+		bodyArgs := make(map[string]interface{})
+		for k, v := range req.GetArguments() {
+			bodyArgs[k] = v
+		}
+{{- range .PathParams}}
+		delete(bodyArgs, {{quote .Name}})
+{{- end}}
+{{- range .QueryParams}}
+		delete(bodyArgs, {{quote .Name}})
+{{- end}}
+		bodyJSON, err := json.Marshal(bodyArgs)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
+		}
+		var body spotify.{{.CamelName}}JSONRequestBody
+		if err := json.Unmarshal(bodyJSON, &body); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
+		}
+{{- end}}
 
 {{- if and .HasBody (not .HasJSONBody)}}
 		resp, err := client.{{.CamelName}}WithBodyWithResponse(ctx{{range .PathParams}}, {{.GoName}}{{end}}, {{quote .BodyCT}}, strings.NewReader(req.GetString("body", "")))
 {{- else}}
-		resp, err := client.{{.CamelName}}WithResponse(ctx{{range .PathParams}}, {{.GoName}}{{end}}{{if .QueryParams}}, params{{end}}{{if .HasJSONBody}}, spotify.{{.CamelName}}JSONRequestBody{}{{end}})
+		resp, err := client.{{.CamelName}}WithResponse(ctx{{range .PathParams}}, {{.GoName}}{{end}}{{if .QueryParams}}, params{{end}}{{if .HasJSONBody}}, body{{end}})
 {{- end}}
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

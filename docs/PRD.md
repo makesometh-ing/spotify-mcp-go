@@ -224,7 +224,7 @@ The Spotify OpenAPI spec (OpenAPI 3.0.3) is structured as:
 - **Security**: A single security scheme `oauth_2_0` of type `oauth2` with `authorizationCode` flow. Each operation declares which scopes it requires.
 - **Deprecated flag**: Operations marked `deprecated: true` are filtered out entirely.
 - **Parameters**: Path parameters, query parameters, and request body schemas are mapped to MCP tool input properties.
-- **Schemas**: `$ref` references to `#/components/schemas/...` define the request/response types that oapi-codegen resolves into Go structs.
+- **Schemas**: `$ref` references to `#/components/schemas/...` define the request/response types that oapi-codegen resolves into Go structs. Request body schemas may also be defined inline (properties directly on the media type schema without a `$ref`). The MCP tool generator resolves both forms to extract body field names, types, required status, and descriptions.
 
 The codegen reads all of this, filters by `deprecated`, and feeds the result to oapi-codegen (step 1) and the MCP tool generator (step 2).
 

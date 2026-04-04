@@ -101,17 +101,10 @@ func TestOapiCodegenExcludesDeprecated(t *testing.T) {
 	require.NoError(t, err)
 	code := string(clientCode)
 
-	// Deprecated operations: transfer-playback -> TransferPlayback, search -> Search.
-	// Neither should appear as client methods.
+	// Deprecated operation: transfer-playback -> TransferPlayback.
+	// Should not appear as client methods.
 	assert.False(t, strings.Contains(code, "TransferPlayback"),
 		"deprecated transfer-playback should not appear in generated client")
-
-	// Check that the search operation (operationId "search") is not generated.
-	// Use a function signature pattern to avoid false positives.
-	assert.False(t, strings.Contains(code, "func (c *ClientWithResponses) SearchWithResponse"),
-		"deprecated search should not appear in generated client")
-	assert.False(t, strings.Contains(code, "func (c *Client) Search("),
-		"deprecated search should not appear in generated client")
 }
 
 func TestOapiCodegenDeterministic(t *testing.T) {

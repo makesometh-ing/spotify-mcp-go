@@ -47,8 +47,6 @@ func TestParserExcludesDeprecated(t *testing.T) {
 	for _, op := range spec.Operations {
 		assert.NotEqual(t, "transfer-playback", op.OperationID,
 			"deprecated operation transfer-playback should be excluded")
-		assert.NotEqual(t, "search", op.OperationID,
-			"deprecated operation search should be excluded")
 	}
 }
 
@@ -180,8 +178,8 @@ func TestParserOperationCount(t *testing.T) {
 	spec, err := Parse(data)
 	require.NoError(t, err)
 
-	// Fixture has 5 operations total, 2 deprecated, 3 active
-	assert.Equal(t, 3, len(spec.Operations))
+	// Fixture has 6 operations total, 1 deprecated, 5 active
+	assert.Equal(t, 5, len(spec.Operations))
 }
 
 func TestParserFetchFromURL(t *testing.T) {
@@ -194,10 +192,172 @@ func TestParserFetchFromURL(t *testing.T) {
 
 	spec, err := FetchAndParse(context.Background(), ts.URL)
 	require.NoError(t, err)
-	assert.Equal(t, 3, len(spec.Operations))
+	assert.Equal(t, 5, len(spec.Operations))
 }
 
 func TestParserInvalidYAML(t *testing.T) {
 	_, err := Parse([]byte("not: valid: yaml: {{{}"))
 	assert.Error(t, err)
+}
+
+func TestParserBodyFields(t *testing.T) {
+	data := loadFixture(t)
+	spec, err := Parse(data)
+	require.NoError(t, err)
+
+	var createPlaylist Operation
+	for _, op := range spec.Operations {
+		if op.OperationID == "create-playlist" {
+			createPlaylist = op
+			break
+		}
+	}
+	require.NotEmpty(t, createPlaylist.OperationID, "create-playlist should be present")
+
+	// Should have body fields parsed from the CreatePlaylistRequest schema
+	require.NotEmpty(t, createPlaylist.BodyFields, "should have body fields")
+
+	fieldsByName := make(map[string]BodyField)
+	for _, f := range createPlaylist.BodyFields {
+		fieldsByName[f.Name] = f
+	}
+
+	// name is required string
+	name, ok := fieldsByName["name"]
+	require.True(t, ok, "should have 'name' body field")
+	assert.Equal(t, "string", name.Type)
+	assert.True(t, name.Required)
+	assert.Equal(t, "The name for the new playlist.", name.Description)
+
+	// description is optional string
+	desc, ok := fieldsByName["description"]
+	require.True(t, ok, "should have 'description' body field")
+	assert.Equal(t, "string", desc.Type)
+	assert.False(t, desc.Required)
+
+	// public is optional boolean
+	pub, ok := fieldsByName["public"]
+	require.True(t, ok, "should have 'public' body field")
+	assert.Equal(t, "boolean", pub.Type)
+	assert.False(t, pub.Required)
+}
+
+func TestParserBodyFieldsAddTracks(t *testing.T) {
+	data := loadFixture(t)
+	spec, err := Parse(data)
+	require.NoError(t, err)
+
+	var addTracks Operation
+	for _, op := range spec.Operations {
+		if op.OperationID == "add-tracks-to-playlist" {
+			addTracks = op
+			break
+		}
+	}
+	require.NotEmpty(t, addTracks.OperationID)
+
+	fieldsByName := make(map[string]BodyField)
+	for _, f := range addTracks.BodyFields {
+		fieldsByName[f.Name] = f
+	}
+
+	// uris is an array field
+	uris, ok := fieldsByName["uris"]
+	require.True(t, ok, "should have 'uris' body field")
+	assert.Equal(t, "array", uris.Type)
+	assert.False(t, uris.Required)
+	assert.Equal(t, "Spotify track URIs to add.", uris.Description)
+
+	// position is an integer field
+	pos, ok := fieldsByName["position"]
+	require.True(t, ok, "should have 'position' body field")
+	assert.Equal(t, "integer", pos.Type)
+}
+
+func TestParserNoBodyFieldsForGET(t *testing.T) {
+	data := loadFixture(t)
+	spec, err := Parse(data)
+	require.NoError(t, err)
+
+	var getPlaylist Operation
+	for _, op := range spec.Operations {
+		if op.OperationID == "get-playlist" {
+			getPlaylist = op
+			break
+		}
+	}
+	assert.Empty(t, getPlaylist.BodyFields, "GET operations should have no body fields")
+}
+
+func TestParserInlineBodySchema(t *testing.T) {
+	spec, err := Parse([]byte(`openapi: "3.0.3"
+info:
+  title: Test
+  version: "1.0.0"
+paths:
+  /things:
+    post:
+      operationId: create-thing
+      summary: Create Thing
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+              properties:
+                title:
+                  type: string
+                  description: Thing title.
+                count:
+                  type: integer
+`))
+	require.NoError(t, err)
+	require.Len(t, spec.Operations, 1)
+
+	op := spec.Operations[0]
+	require.NotEmpty(t, op.BodyFields)
+
+	fieldsByName := make(map[string]BodyField)
+	for _, f := range op.BodyFields {
+		fieldsByName[f.Name] = f
+	}
+
+	title, ok := fieldsByName["title"]
+	require.True(t, ok)
+	assert.Equal(t, "string", title.Type)
+	assert.True(t, title.Required)
+	assert.Equal(t, "Thing title.", title.Description)
+
+	count, ok := fieldsByName["count"]
+	require.True(t, ok)
+	assert.Equal(t, "integer", count.Type)
+	assert.False(t, count.Required)
+}
+
+func TestParserArrayQueryParam(t *testing.T) {
+	data := loadFixture(t)
+	spec, err := Parse(data)
+	require.NoError(t, err)
+
+	var search Operation
+	for _, op := range spec.Operations {
+		if op.OperationID == "search" {
+			search = op
+			break
+		}
+	}
+	require.NotEmpty(t, search.OperationID, "search should be present (not deprecated)")
+
+	var typeParam *Parameter
+	for i, p := range search.Parameters {
+		if p.Name == "type" {
+			typeParam = &search.Parameters[i]
+			break
+		}
+	}
+	require.NotNil(t, typeParam, "should have 'type' query parameter")
+	assert.Equal(t, "array", typeParam.Type)
+	assert.True(t, typeParam.HasEnum)
 }
