@@ -45,6 +45,36 @@ Three artifacts from one repo:
 
 The server reads from a `.env` file in the working directory if present, with environment variables taking precedence. A `.env.example` file is included in the repo.
 
+### CLI Flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--debug` | `false` | Enable debug logging. When off, the server is silent (no log output). When on, structured logs are emitted to stderr. |
+
+### Logging
+
+The server uses [Uber Zap](https://github.com/uber-go/zap) with the SugaredLogger for readable, structured output.
+
+**Behavior:**
+
+- **Default (no `--debug`):** No log output. The server is silent except for the startup banner printed to stdout.
+- **`--debug` enabled:** Pretty-printed logs emitted to stderr at DEBUG level and above. Format: Zap's console encoder (not JSON) with colorized log levels, ISO 8601 timestamps, caller location (file:line), and message. This is a CLI tool, not a service; logs must be human-scannable in a terminal.
+
+**What gets logged (when `--debug` is on):**
+
+- OAuth flow events: `/authorize` requests, `/callback` processing, token exchanges, token refreshes, registration
+- HTTP requests: method, path, status code, duration
+- MCP tool invocations: tool name, input arguments, duration, success/failure, output response
+- Spotify API calls: endpoint, status code, duration
+- Token store operations: store, load, delete, expiry cleanup
+- Server lifecycle: startup, shutdown, listener address
+
+**Integration pattern:**
+
+- A `*zap.SugaredLogger` is created in `cmd/server/main.go` based on the `--debug` flag. When debug is off, use `zap.NewNop()`. When on, use `zap.NewDevelopment()` with console encoding.
+- The logger is passed down through constructors: `auth.NewHandler`, `tools.Register`, store implementations, and the Spotify client.
+- Each component logs with a named sub-logger (e.g., `logger.Named("auth")`, `logger.Named("spotify")`) for easy filtering.
+
 **Codegen (CI only):**
 
 | Variable | Required | Default | Description |
@@ -101,13 +131,13 @@ All served on the same host:port as the MCP endpoint. MCP clients discover the a
 2. Client fetches `GET /.well-known/oauth-protected-resource` from the same origin as the MCP server URL. This returns `authorization_servers` pointing to the same origin.
 3. Client fetches `GET /.well-known/oauth-authorization-server` to discover endpoints.
 4. Client registers via `POST /register` with a JSON body containing `redirect_uris` and optionally `grant_types`, `response_types`, `token_endpoint_auth_method`, `client_name`. Receives a unique `client_id` and all registered metadata echoed back per RFC 7591. Defaults: `grant_types=["authorization_code"]`, `response_types=["code"]`, `token_endpoint_auth_method="none"`.
-5. Client sends user to `GET /authorize?redirect_uri=...&code_challenge=...&client_id=...`. The server validates that `redirect_uri` matches one of the URIs registered in step 4.
-6. Server redirects to `https://accounts.spotify.com/authorize` with its own `SPOTIFY_CLIENT_ID`, a server-side callback URI (`/callback`), PKCE code_challenge (S256), and all Spotify scopes. Server stores the client's PKCE state, redirect_uri, and client_id for the pending auth.
+5. Client sends user to `GET /authorize?redirect_uri=...&code_challenge=...&client_id=...&state=...`. The server validates that `redirect_uri` matches one of the URIs registered in step 4. The client's `state` parameter is opaque to the server and must be preserved for round-tripping back to the client in step 11.
+6. Server redirects to `https://accounts.spotify.com/authorize` with its own `SPOTIFY_CLIENT_ID`, a server-side callback URI (`/callback`), PKCE code_challenge (S256), and all Spotify scopes. Server stores the client's PKCE state, redirect_uri, client_id, and the client's original `state` parameter for the pending auth.
 7. User logs in at Spotify, grants permissions.
 8. Spotify redirects to `GET /callback?code=...&state=...`.
 9. Server exchanges the Spotify auth code for Spotify tokens (access + refresh) via `https://accounts.spotify.com/api/token`, including the PKCE code_verifier.
 10. Server stores Spotify tokens in the token store, keyed by the MCP client_id.
-11. Server generates its own MCP auth code, redirects to the MCP client's `redirect_uri`.
+11. Server generates its own MCP auth code, redirects to the MCP client's `redirect_uri` with `?code=<mcp_code>&state=<client_state>`. The `state` value is the client's original `state` from step 5, round-tripped unmodified. If the client did not send a `state`, it is omitted from the redirect.
 12. Client exchanges the MCP auth code at `POST /token`, server issues MCP access + refresh tokens.
 13. Client uses MCP access token as `Authorization: Bearer` on all `POST /mcp` requests.
 14. On each MCP request, server looks up associated Spotify tokens by client_id. If the Spotify access token is expired, server uses the stored Spotify refresh token to get a new one from `https://accounts.spotify.com/api/token`, updates the store, then calls the Spotify API.
@@ -248,6 +278,7 @@ spotify-mcp-go/
 | `github.com/mark3labs/mcp-go` | v0.46.0 | MCP protocol, streamable HTTP transport, tool builder API |
 | `golang.org/x/oauth2` | v0.36.0 | Spotify OAuth client (PKCE, token exchange, refresh) |
 | `modernc.org/sqlite` | latest | Pure-Go SQLite driver (no CGO, simpler cross-compilation + ko) |
+| `go.uber.org/zap` | latest | Structured logging (SugaredLogger for debug mode) |
 | Go stdlib `net/http` | - | HTTP server, routing (ServeMux with method routing, Go 1.22+) |
 | Go stdlib `crypto` | - | MCP token generation, PKCE verification |
 
