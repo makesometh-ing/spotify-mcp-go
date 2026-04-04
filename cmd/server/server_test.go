@@ -259,6 +259,10 @@ func TestBaseURLStartupOutputDefault(t *testing.T) {
 	assert.Contains(t, output, "http://127.0.0.1:8080/callback")
 }
 
+func TestSpotifyAPIBaseURLDefault(t *testing.T) {
+	assert.Equal(t, "https://api.spotify.com/v1", defaultSpotifyAPIBaseURL)
+}
+
 func TestServerStartupTokenDBOverride(t *testing.T) {
 	t.Setenv("SPOTIFY_CLIENT_ID", "test-id")
 	t.Setenv("SPOTIFY_CLIENT_SECRET", "test-secret")

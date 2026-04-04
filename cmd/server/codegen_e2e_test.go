@@ -129,6 +129,10 @@ func TestCodegenE2EFullPipeline(t *testing.T) {
 	// a minimal test tool to prove the server boots with the full pipeline.
 	// The real validation is that compilation succeeded above.
 	mockSpotifyAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/") {
+			http.Error(w, `{"error":{"status":404,"message":"Service not found"}}`, http.StatusNotFound)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
@@ -148,7 +152,7 @@ func TestCodegenE2EFullPipeline(t *testing.T) {
 		SpotifyClientID:      "test-id",
 		SpotifyClientSecret:  "test-secret",
 		SpotifyTokenEndpoint: mockSpotifyOAuth.URL,
-		SpotifyAPIBaseURL:    mockSpotifyAPI.URL,
+		SpotifyAPIBaseURL:    mockSpotifyAPI.URL + "/v1",
 	}
 
 	serverCtx, serverCancel := context.WithCancel(ctx)
