@@ -234,6 +234,33 @@ func TestAuthorizeStoresPendingState(t *testing.T) {
 	assert.NotEmpty(t, pending.SpotifyVerifier)
 }
 
+func TestAuthorizeStoresClientState(t *testing.T) {
+	ts, h := setupTestHandler(t)
+	clientID := registerClient(t, ts)
+
+	client := noRedirectClient()
+	u := ts.URL + "/authorize?" + url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
+		"code_challenge":        {"test-challenge"},
+		"code_challenge_method": {"S256"},
+		"response_type":         {"code"},
+		"state":                 {"client-csrf-token-abc"},
+	}.Encode()
+
+	resp, err := client.Get(u)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	loc, err := url.Parse(resp.Header.Get("Location"))
+	require.NoError(t, err)
+	spotifyState := loc.Query().Get("state")
+
+	pending, ok := h.GetPendingAuth(spotifyState)
+	require.True(t, ok)
+	assert.Equal(t, "client-csrf-token-abc", pending.ClientState)
+}
+
 func TestAuthorizeMissingClientID(t *testing.T) {
 	ts, _ := setupTestHandler(t)
 
@@ -426,6 +453,70 @@ func TestCallbackRedirectsWithMCPCode(t *testing.T) {
 	assert.Equal(t, "127.0.0.1:9999", loc.Host)
 	assert.Equal(t, "/callback", loc.Path)
 	assert.NotEmpty(t, loc.Query().Get("code"), "should include MCP auth code")
+}
+
+func TestCallbackRedirectIncludesClientState(t *testing.T) {
+	ts, _, mock, _, _ := setupCallbackTest(t)
+
+	// Re-do the auth flow with a client state parameter
+	clientID := registerClient(t, ts)
+	client := noRedirectClient()
+	u := ts.URL + "/authorize?" + url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {"http://127.0.0.1:9999/callback"},
+		"code_challenge":        {"test-challenge"},
+		"code_challenge_method": {"S256"},
+		"response_type":         {"code"},
+		"state":                 {"my-client-state-xyz"},
+	}.Encode()
+	authResp, err := client.Get(u)
+	require.NoError(t, err)
+	defer authResp.Body.Close()
+
+	loc, err := url.Parse(authResp.Header.Get("Location"))
+	require.NoError(t, err)
+	spotifyState := loc.Query().Get("state")
+
+	// Ensure mock Spotify is ready
+	_ = mock
+
+	// Simulate Spotify callback
+	cbResp, err := client.Get(ts.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {spotifyState},
+	}.Encode())
+	require.NoError(t, err)
+	defer cbResp.Body.Close()
+
+	require.Equal(t, http.StatusFound, cbResp.StatusCode)
+
+	redirectLoc, err := url.Parse(cbResp.Header.Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "my-client-state-xyz", redirectLoc.Query().Get("state"),
+		"callback redirect must include client's original state parameter")
+	assert.NotEmpty(t, redirectLoc.Query().Get("code"),
+		"callback redirect must still include the MCP auth code")
+}
+
+func TestCallbackRedirectOmitsStateWhenNotProvided(t *testing.T) {
+	ts, _, _, state, _ := setupCallbackTest(t)
+	// setupCallbackTest does NOT pass a state param in /authorize, so ClientState is empty
+
+	client := noRedirectClient()
+	cbResp, err := client.Get(ts.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {state},
+	}.Encode())
+	require.NoError(t, err)
+	defer cbResp.Body.Close()
+
+	require.Equal(t, http.StatusFound, cbResp.StatusCode)
+
+	redirectLoc, err := url.Parse(cbResp.Header.Get("Location"))
+	require.NoError(t, err)
+	assert.Empty(t, redirectLoc.Query().Get("state"),
+		"callback redirect must NOT include state when client did not send one")
+	assert.NotEmpty(t, redirectLoc.Query().Get("code"))
 }
 
 func TestCallbackInvalidStateReturns400(t *testing.T) {
