@@ -38,6 +38,7 @@ type Operation struct {
 // ParsedSpec holds the result of parsing an OpenAPI spec.
 type ParsedSpec struct {
 	Operations []Operation
+	ServerURL  string // from servers[0].url, if present
 }
 
 // Parse parses an OpenAPI 3.0.3 YAML spec, filtering out deprecated operations.
@@ -45,6 +46,11 @@ func Parse(data []byte) (*ParsedSpec, error) {
 	var spec openAPISpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
 		return nil, fmt.Errorf("parsing OpenAPI spec: %w", err)
+	}
+
+	var serverURL string
+	if len(spec.Servers) > 0 {
+		serverURL = spec.Servers[0].URL
 	}
 
 	var ops []Operation
@@ -57,7 +63,7 @@ func Parse(data []byte) (*ParsedSpec, error) {
 		}
 	}
 
-	return &ParsedSpec{Operations: ops}, nil
+	return &ParsedSpec{Operations: ops, ServerURL: serverURL}, nil
 }
 
 // FetchAndParse fetches an OpenAPI spec from a URL and parses it.
@@ -88,6 +94,9 @@ func FetchAndParse(ctx context.Context, url string) (*ParsedSpec, error) {
 // Internal YAML types for unmarshalling OpenAPI 3.0.3
 
 type openAPISpec struct {
+	Servers []struct {
+		URL string `yaml:"url"`
+	} `yaml:"servers"`
 	Paths      map[string]pathItem `yaml:"paths"`
 	Components struct {
 		Parameters map[string]yamlParameter `yaml:"parameters"`

@@ -95,7 +95,7 @@ func run() error {
 
 	// Step 5: Generate MCP tool definitions
 	fmt.Println("Generating MCP tools...")
-	if err := codegen.GenerateToolsFile(spec.Operations, "tools", toolsOutput); err != nil {
+	if err := codegen.GenerateToolsFile(spec.Operations, "tools", spec.ServerURL, toolsOutput); err != nil {
 		return fmt.Errorf("generating tools: %w", err)
 	}
 	fmt.Printf("  %s\n", toolsOutput)

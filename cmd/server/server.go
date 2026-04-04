@@ -26,10 +26,8 @@ type serverConfig struct {
 	TokenDBPath          string
 	BaseURL              string // SPOTIFY_MCP_BASE_URL; empty = http://127.0.0.1:<port>
 	SpotifyTokenEndpoint string // override for testing; empty = Spotify default
-	SpotifyAPIBaseURL    string // override for testing; empty = defaultSpotifyAPIBaseURL
+	SpotifyAPIBaseURL    string // override for testing; empty = tools.ServerURL
 }
-
-const defaultSpotifyAPIBaseURL = "https://api.spotify.com/v1"
 
 // loadConfig reads configuration from environment variables and an optional .env file.
 // Environment variables take precedence over .env file values.
@@ -141,7 +139,7 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 
 	apiBase := cfg.SpotifyAPIBaseURL
 	if apiBase == "" {
-		apiBase = defaultSpotifyAPIBaseURL
+		apiBase = tools.ServerURL
 	}
 	if toolRegs != nil {
 		tools.Register(mcpServer, toolRegs, tokenStore, spotifyClient, apiBase, logger)

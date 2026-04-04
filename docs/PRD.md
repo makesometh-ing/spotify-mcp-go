@@ -217,7 +217,8 @@ The codegen tool (`cmd/codegen/main.go`) is an internal maintainer tool, not dis
 
 The Spotify OpenAPI spec (OpenAPI 3.0.3) is structured as:
 
-- **Paths**: Each path (e.g., `/v1/playlists/{playlist_id}`) contains operations keyed by HTTP method (GET, PUT, POST, DELETE).
+- **Servers**: The `servers` block declares the API base URL (e.g., `https://api.spotify.com/v1`). The codegen extracts `servers[0].url` and generates a `const ServerURL` in the tools package, used as the default Spotify API base URL at runtime.
+- **Paths**: Each path (e.g., `/playlists/{playlist_id}`) is relative to the server URL and contains operations keyed by HTTP method (GET, PUT, POST, DELETE).
 - **Operations**: Each operation has an `operationId`, `summary`, `description`, `parameters`, `requestBody`, `responses`, `tags`, `deprecated` flag, and `security` requirements.
 - **Tags**: Operations are tagged by category (e.g., `Players`, `Playlists`, `Tracks`). Tags determine grouping but do not affect generation since we produce one tool per operation.
 - **Security**: A single security scheme `oauth_2_0` of type `oauth2` with `authorizationCode` flow. Each operation declares which scopes it requires.

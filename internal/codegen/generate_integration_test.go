@@ -24,11 +24,9 @@ func TestOapiCodegenBuildIntegration(t *testing.T) {
 	config.ClientOutput = clientPath
 	config.TypesOutput = typesPath
 
-	// Clean up generated files after test
-	t.Cleanup(func() {
-		os.Remove(clientPath)
-		os.Remove(typesPath)
-	})
+	// Backup and restore generated files after test
+	backupFile(t, clientPath)
+	backupFile(t, typesPath)
 
 	err = GenerateFromSpec(fixture, config)
 	require.NoError(t, err)

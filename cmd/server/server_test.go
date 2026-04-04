@@ -17,6 +17,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+
+	"github.com/makesometh-ing/spotify-mcp-go/internal/tools"
 )
 
 func validConfig(t *testing.T) *serverConfig {
@@ -260,7 +262,7 @@ func TestBaseURLStartupOutputDefault(t *testing.T) {
 }
 
 func TestSpotifyAPIBaseURLDefault(t *testing.T) {
-	assert.Equal(t, "https://api.spotify.com/v1", defaultSpotifyAPIBaseURL)
+	assert.Equal(t, "https://api.spotify.com/v1", tools.ServerURL)
 }
 
 func TestServerStartupTokenDBOverride(t *testing.T) {
