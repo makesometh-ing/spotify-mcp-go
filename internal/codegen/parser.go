@@ -11,6 +11,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// flexRequired handles the OpenAPI `required` field which can be either
+// a []string (schema-level list of required property names) or a bool
+// (parameter-level required flag). Some specs mix these incorrectly.
+type flexRequired []string
+
+func (f *flexRequired) UnmarshalYAML(value *yaml.Node) error {
+	// Try array of strings first (standard schema-level required)
+	var arr []string
+	if err := value.Decode(&arr); err == nil {
+		*f = arr
+		return nil
+	}
+	// If it's a bool or anything else, ignore it (not a property name list)
+	*f = nil
+	return nil
+}
+
 // Parameter represents an OpenAPI operation parameter.
 type Parameter struct {
 	Name        string
@@ -19,6 +36,14 @@ type Parameter struct {
 	Required    bool
 	Description string
 	HasEnum     bool
+}
+
+// BodyField represents a property of a JSON request body schema.
+type BodyField struct {
+	Name        string
+	Type        string // "string", "integer", "boolean", "array", "object"
+	Required    bool
+	Description string
 }
 
 // Operation represents a parsed, non-deprecated OpenAPI operation.
@@ -32,6 +57,7 @@ type Operation struct {
 	Parameters      []Parameter
 	RequestBodyRef  string
 	BodyContentType string // e.g., "application/json", "image/jpeg"
+	BodyFields      []BodyField
 	Scopes          []string
 }
 
@@ -59,7 +85,7 @@ func Parse(data []byte) (*ParsedSpec, error) {
 			if op.Deprecated {
 				continue
 			}
-			ops = append(ops, convertOperation(path, method, op, spec.Components.Parameters))
+			ops = append(ops, convertOperation(path, method, op, spec.Components.Parameters, spec.Components.Schemas))
 		}
 	}
 
@@ -100,7 +126,23 @@ type openAPISpec struct {
 	Paths      map[string]pathItem `yaml:"paths"`
 	Components struct {
 		Parameters map[string]yamlParameter `yaml:"parameters"`
+		Schemas    map[string]yamlSchemaObj `yaml:"schemas"`
 	} `yaml:"components"`
+}
+
+// yamlSchemaObj represents a full schema object with properties and required list.
+type yamlSchemaObj struct {
+	Ref        string                    `yaml:"$ref"`
+	Type       string                    `yaml:"type"`
+	Required   flexRequired              `yaml:"required"`
+	Properties map[string]yamlSchemaProp `yaml:"properties"`
+}
+
+// yamlSchemaProp represents a single property within a schema.
+type yamlSchemaProp struct {
+	Type        string      `yaml:"type"`
+	Description string      `yaml:"description"`
+	Items       *yamlSchema `yaml:"items"`
 }
 
 type pathItem struct {
@@ -163,10 +205,10 @@ type yamlRequestBody struct {
 }
 
 type yamlMediaType struct {
-	Schema yamlSchema `yaml:"schema"`
+	Schema yamlSchemaObj `yaml:"schema"`
 }
 
-func convertOperation(path, method string, op *yamlOperation, componentParams map[string]yamlParameter) Operation {
+func convertOperation(path, method string, op *yamlOperation, componentParams map[string]yamlParameter, componentSchemas map[string]yamlSchemaObj) Operation {
 	result := Operation{
 		OperationID: op.OperationID,
 		Method:      method,
@@ -212,8 +254,36 @@ func convertOperation(path, method string, op *yamlOperation, componentParams ma
 		result.RequestBodyRef = "true" // signal that body exists
 		for ct, mt := range op.RequestBody.Content {
 			result.BodyContentType = ct
+
+			// Resolve schema: either from $ref or inline
+			var schema *yamlSchemaObj
 			if mt.Schema.Ref != "" {
 				result.RequestBodyRef = mt.Schema.Ref
+				schemaName := strings.TrimPrefix(mt.Schema.Ref, "#/components/schemas/")
+				if resolved, ok := componentSchemas[schemaName]; ok {
+					schema = &resolved
+				}
+			} else if len(mt.Schema.Properties) > 0 {
+				schema = &mt.Schema
+			}
+
+			if schema != nil {
+				requiredSet := make(map[string]bool, len(schema.Required))
+				for _, r := range schema.Required {
+					requiredSet[r] = true
+				}
+				for propName, prop := range schema.Properties {
+					propType := prop.Type
+					if prop.Items != nil && propType == "" {
+						propType = "array"
+					}
+					result.BodyFields = append(result.BodyFields, BodyField{
+						Name:        propName,
+						Type:        propType,
+						Required:    requiredSet[propName],
+						Description: prop.Description,
+					})
+				}
 			}
 			break
 		}

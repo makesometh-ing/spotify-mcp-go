@@ -23,9 +23,9 @@ func TestToolGenGeneratesOneToolPerOperation(t *testing.T) {
 	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
-	// 3 active operations in the fixture, so 3 tool definitions
+	// 5 active operations in the fixture, so 5 tool definitions
 	count := strings.Count(code, "= mcp.NewTool(")
-	assert.Equal(t, 3, count)
+	assert.Equal(t, 5, count)
 }
 
 func TestToolGenToolNames(t *testing.T) {
@@ -175,10 +175,47 @@ func TestToolGenExcludesDeprecated(t *testing.T) {
 	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
-	// Deprecated operations: transfer-playback, search
+	// Deprecated operations: transfer-playback
 	assert.NotContains(t, code, "transfer-playback")
-	assert.NotContains(t, code, `mcp.NewTool("search"`)
 	assert.NotContains(t, code, "TransferPlayback")
+}
+
+func TestToolGenBodyFieldsAsParams(t *testing.T) {
+	ops := parseFixtureOps(t)
+	code, err := GenerateTools(ops, "tools", "")
+	require.NoError(t, err)
+
+	// create-playlist should declare body fields as MCP tool parameters
+	// name is required
+	assert.Contains(t, code, `mcp.WithString("name", mcp.Required()`)
+	// description and public are optional
+	assert.Contains(t, code, `mcp.WithString("description"`)
+	assert.Contains(t, code, `mcp.WithBoolean("public"`)
+}
+
+func TestToolGenBodyNotEmpty(t *testing.T) {
+	ops := parseFixtureOps(t)
+	code, err := GenerateTools(ops, "tools", "")
+	require.NoError(t, err)
+
+	// Handlers must NOT pass empty body struct literals
+	assert.NotContains(t, code, "JSONRequestBody{}")
+
+	// Handlers should marshal arguments into the body struct
+	assert.Contains(t, code, "json.Marshal")
+	assert.Contains(t, code, "json.Unmarshal")
+}
+
+func TestToolGenArrayParamReadsFromArguments(t *testing.T) {
+	ops := parseFixtureOps(t)
+	code, err := GenerateTools(ops, "tools", "")
+	require.NoError(t, err)
+
+	// Array params should read from req.GetArguments() (primary path)
+	assert.Contains(t, code, `req.GetArguments()["type"].([]interface{})`)
+
+	// Should type-assert array elements to string
+	assert.Contains(t, code, `item.(string)`)
 }
 
 func TestToolGenBuildIntegration(t *testing.T) {

@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,6 +24,8 @@ var AddItemsToPlaylistTool = mcp.NewTool("add-items-to-playlist",
 	mcp.WithString("playlist_id", mcp.Required()),
 	mcp.WithNumber("position"),
 	mcp.WithString("uris"),
+	mcp.WithArray("uris", mcp.Description("A JSON array of the [Spotify URIs](/documentation/web-api/concepts/spotify-uris-ids) to add. For example: `{\"uris\": [\"spotify:track:4iV5W9uYEdYUVa79Axb7Rh\",\"spotify:track:1301WleyT98MSxVHPZCA6M\", \"spotify:episode:512ojhOuo1ktJprKbVcKyQ\"]}`<br/>A maximum of 100 items can be added in one request. _**Note**: if the `uris` parameter is present in the query string, any URIs listed here in the body will be ignored._\n")),
+	mcp.WithNumber("position", mcp.Description("The position to insert the items, a zero-based index. For example, to insert the items in the first position: `position=0` ; to insert the items in the third position: `position=2`. If omitted, the items will be appended to the playlist. Items are added in the order they appear in the uris array. For example: `{\"uris\": [\"spotify:track:4iV5W9uYEdYUVa79Axb7Rh\",\"spotify:track:1301WleyT98MSxVHPZCA6M\"], \"position\": 3}`\n")),
 )
 
 // NewAddItemsToPlaylistHandler creates a handler for the add-items-to-playlist tool.
@@ -36,7 +39,22 @@ func NewAddItemsToPlaylistHandler(client *spotify.ClientWithResponses) func(cont
 		if v := req.GetString("uris", ""); v != "" {
 			params.Uris = &v
 		}
-		resp, err := client.AddItemsToPlaylistWithResponse(ctx, playlistId, params, spotify.AddItemsToPlaylistJSONRequestBody{})
+		bodyArgs := make(map[string]interface{})
+		for k, v := range req.GetArguments() {
+			bodyArgs[k] = v
+		}
+		delete(bodyArgs, "playlist_id")
+		delete(bodyArgs, "position")
+		delete(bodyArgs, "uris")
+		bodyJSON, err := json.Marshal(bodyArgs)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
+		}
+		var body spotify.AddItemsToPlaylistJSONRequestBody
+		if err := json.Unmarshal(bodyJSON, &body); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
+		}
+		resp, err := client.AddItemsToPlaylistWithResponse(ctx, playlistId, params, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -85,13 +103,30 @@ var ChangePlaylistDetailsToolScopes = []string{"playlist-modify-public", "playli
 var ChangePlaylistDetailsTool = mcp.NewTool("change-playlist-details",
 	mcp.WithDescription("Change Playlist Details\n\n\nChange a playlist's name and public/private state. (The user must, of\ncourse, own the playlist.)\n"),
 	mcp.WithString("playlist_id", mcp.Required()),
+	mcp.WithBoolean("public", mcp.Description("The playlist's public/private status (if it should be added to the user's profile or not): `true` the playlist will be public, `false` the playlist will be private, `null` the playlist status is not relevant. For more about public/private status, see [Working with Playlists](/documentation/web-api/concepts/playlists)\n")),
+	mcp.WithBoolean("collaborative", mcp.Description("If `true`, the playlist will become collaborative and other users will be able to modify the playlist in their Spotify client. <br/>\n_**Note**: You can only set `collaborative` to `true` on non-public playlists._\n")),
+	mcp.WithString("description", mcp.Description("Value for playlist description as displayed in Spotify Clients and in the Web API.\n")),
+	mcp.WithString("name", mcp.Description("The new name for the playlist, for example `\"My New Playlist Title\"`\n")),
 )
 
 // NewChangePlaylistDetailsHandler creates a handler for the change-playlist-details tool.
 func NewChangePlaylistDetailsHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		playlistId := req.GetString("playlist_id", "")
-		resp, err := client.ChangePlaylistDetailsWithResponse(ctx, playlistId, spotify.ChangePlaylistDetailsJSONRequestBody{})
+		bodyArgs := make(map[string]interface{})
+		for k, v := range req.GetArguments() {
+			bodyArgs[k] = v
+		}
+		delete(bodyArgs, "playlist_id")
+		bodyJSON, err := json.Marshal(bodyArgs)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
+		}
+		var body spotify.ChangePlaylistDetailsJSONRequestBody
+		if err := json.Unmarshal(bodyJSON, &body); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
+		}
+		resp, err := client.ChangePlaylistDetailsWithResponse(ctx, playlistId, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -135,12 +170,28 @@ var CreatePlaylistToolScopes = []string{"playlist-modify-public", "playlist-modi
 
 var CreatePlaylistTool = mcp.NewTool("create-playlist",
 	mcp.WithDescription("Create Playlist\n\n\nCreate a playlist for the current Spotify user. (The playlist will be empty until\nyou [add tracks](/documentation/web-api/reference/add-tracks-to-playlist).)\nEach user is generally limited to a maximum of 11000 playlists.\n"),
+	mcp.WithString("description", mcp.Description("value for playlist description as displayed in Spotify Clients and in the Web API.\n")),
+	mcp.WithString("name", mcp.Required(), mcp.Description("The name for the new playlist, for example `\"Your Coolest Playlist\"`. This name does not need to be unique; a user may have several playlists with the same name.\n")),
+	mcp.WithBoolean("public", mcp.Description("Defaults to `true`. The playlist's public/private status (if it should be added to the user's profile or not): `true` the playlist will be public, `false` the playlist will be private. To be able to create private playlists, the user must have granted the `playlist-modify-private` [scope](/documentation/web-api/concepts/scopes/#list-of-scopes). For more about public/private status, see [Working with Playlists](/documentation/web-api/concepts/playlists)\n")),
+	mcp.WithBoolean("collaborative", mcp.Description("Defaults to `false`. If `true` the playlist will be collaborative. _**Note**: to create a collaborative playlist you must also set `public` to `false`. To create collaborative playlists you must have granted `playlist-modify-private` and `playlist-modify-public` [scopes](/documentation/web-api/concepts/scopes/#list-of-scopes)._\n")),
 )
 
 // NewCreatePlaylistHandler creates a handler for the create-playlist tool.
 func NewCreatePlaylistHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		resp, err := client.CreatePlaylistWithResponse(ctx, spotify.CreatePlaylistJSONRequestBody{})
+		bodyArgs := make(map[string]interface{})
+		for k, v := range req.GetArguments() {
+			bodyArgs[k] = v
+		}
+		bodyJSON, err := json.Marshal(bodyArgs)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
+		}
+		var body spotify.CreatePlaylistJSONRequestBody
+		if err := json.Unmarshal(bodyJSON, &body); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
+		}
+		resp, err := client.CreatePlaylistWithResponse(ctx, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -1102,13 +1153,28 @@ var RemoveItemsPlaylistToolScopes = []string{"playlist-modify-public", "playlist
 var RemoveItemsPlaylistTool = mcp.NewTool("remove-items-playlist",
 	mcp.WithDescription("Remove Playlist Items\n\n\nRemove one or more items from a user's playlist.\n"),
 	mcp.WithString("playlist_id", mcp.Required()),
+	mcp.WithArray("items", mcp.Required(), mcp.Description("An array of objects containing [Spotify URIs](/documentation/web-api/concepts/spotify-uris-ids) of the tracks or episodes to remove.\nFor example: `{ \"items\": [{ \"uri\": \"spotify:track:4iV5W9uYEdYUVa79Axb7Rh\" },{ \"uri\": \"spotify:track:1301WleyT98MSxVHPZCA6M\" }] }`. A maximum of 100 objects can be sent at once.\n")),
+	mcp.WithString("snapshot_id", mcp.Description("The playlist's snapshot ID against which you want to make the changes.\nThe API will validate that the specified items exist and in the specified positions and make the changes,\neven if more recent changes have been made to the playlist.\n")),
 )
 
 // NewRemoveItemsPlaylistHandler creates a handler for the remove-items-playlist tool.
 func NewRemoveItemsPlaylistHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		playlistId := req.GetString("playlist_id", "")
-		resp, err := client.RemoveItemsPlaylistWithResponse(ctx, playlistId, spotify.RemoveItemsPlaylistJSONRequestBody{})
+		bodyArgs := make(map[string]interface{})
+		for k, v := range req.GetArguments() {
+			bodyArgs[k] = v
+		}
+		delete(bodyArgs, "playlist_id")
+		bodyJSON, err := json.Marshal(bodyArgs)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
+		}
+		var body spotify.RemoveItemsPlaylistJSONRequestBody
+		if err := json.Unmarshal(bodyJSON, &body); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
+		}
+		resp, err := client.RemoveItemsPlaylistWithResponse(ctx, playlistId, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -1154,6 +1220,11 @@ var ReorderOrReplacePlaylistsItemsTool = mcp.NewTool("reorder-or-replace-playlis
 	mcp.WithDescription("Update Playlist Items\n\n\nEither reorder or replace items in a playlist depending on the request's parameters.\nTo reorder items, include `range_start`, `insert_before`, `range_length` and `snapshot_id` in the request's body.\nTo replace items, include `uris` as either a query parameter or in the request's body.\nReplacing items in a playlist will overwrite its existing items. This operation can be used for replacing or clearing items in a playlist.\n<br/>\n**Note**: Replace and reorder are mutually exclusive operations which share the same endpoint, but have different parameters.\nThese operations can't be applied together in a single request.\n"),
 	mcp.WithString("playlist_id", mcp.Required()),
 	mcp.WithString("uris"),
+	mcp.WithArray("uris"),
+	mcp.WithNumber("range_start", mcp.Description("The position of the first item to be reordered.\n")),
+	mcp.WithNumber("insert_before", mcp.Description("The position where the items should be inserted.<br/>To reorder the items to the end of the playlist, simply set _insert_before_ to the position after the last item.<br/>Examples:<br/>To reorder the first item to the last position in a playlist with 10 items, set _range_start_ to 0, and _insert_before_ to 10.<br/>To reorder the last item in a playlist with 10 items to the start of the playlist, set _range_start_ to 9, and _insert_before_ to 0.\n")),
+	mcp.WithNumber("range_length", mcp.Description("The amount of items to be reordered. Defaults to 1 if not set.<br/>The range of items to be reordered begins from the _range_start_ position, and includes the _range_length_ subsequent items.<br/>Example:<br/>To move the items at index 9-10 to the start of the playlist, _range_start_ is set to 9, and _range_length_ is set to 2.\n")),
+	mcp.WithString("snapshot_id", mcp.Description("The playlist's snapshot ID against which you want to make the changes.\n")),
 )
 
 // NewReorderOrReplacePlaylistsItemsHandler creates a handler for the reorder-or-replace-playlists-items tool.
@@ -1164,7 +1235,21 @@ func NewReorderOrReplacePlaylistsItemsHandler(client *spotify.ClientWithResponse
 		if v := req.GetString("uris", ""); v != "" {
 			params.Uris = &v
 		}
-		resp, err := client.ReorderOrReplacePlaylistsItemsWithResponse(ctx, playlistId, params, spotify.ReorderOrReplacePlaylistsItemsJSONRequestBody{})
+		bodyArgs := make(map[string]interface{})
+		for k, v := range req.GetArguments() {
+			bodyArgs[k] = v
+		}
+		delete(bodyArgs, "playlist_id")
+		delete(bodyArgs, "uris")
+		bodyJSON, err := json.Marshal(bodyArgs)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
+		}
+		var body spotify.ReorderOrReplacePlaylistsItemsJSONRequestBody
+		if err := json.Unmarshal(bodyJSON, &body); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
+		}
+		resp, err := client.ReorderOrReplacePlaylistsItemsWithResponse(ctx, playlistId, params, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -1221,8 +1306,13 @@ func NewSearchHandler(client *spotify.ClientWithResponses) func(context.Context,
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := &spotify.SearchParams{}
 		params.Q = req.GetString("q", "")
-		{
-			raw := req.GetString("type", "")
+		if arr, ok := req.GetArguments()["type"].([]interface{}); ok {
+			for _, item := range arr {
+				if s, ok := item.(string); ok && s != "" {
+					params.Type = append(params.Type, spotify.SearchParamsType(s))
+				}
+			}
+		} else if raw := req.GetString("type", ""); raw != "" {
 			for _, s := range strings.Split(raw, ",") {
 				if t := strings.TrimSpace(s); t != "" {
 					params.Type = append(params.Type, spotify.SearchParamsType(t))
@@ -1407,6 +1497,10 @@ var StartAUsersPlaybackToolScopes = []string{"user-modify-playback-state"}
 var StartAUsersPlaybackTool = mcp.NewTool("start-a-users-playback",
 	mcp.WithDescription("Start/Resume Playback\n\n\nStart a new context or resume current playback on the user's active device. This API only works for users who have Spotify Premium. The order of execution is not guaranteed when you use this API with other Player API endpoints.\n"),
 	mcp.WithString("device_id"),
+	mcp.WithString("context_uri", mcp.Description("Optional. Spotify URI of the context to play.\nValid contexts are albums, artists & playlists.\n`{context_uri:\"spotify:album:1Je1IMUlBXcx1Fz0WE7oPT\"}`\n")),
+	mcp.WithArray("uris", mcp.Description("Optional. A JSON array of the Spotify track URIs to play.\nFor example: `{\"uris\": [\"spotify:track:4iV5W9uYEdYUVa79Axb7Rh\", \"spotify:track:1301WleyT98MSxVHPZCA6M\"]}`\n")),
+	mcp.WithString("offset", mcp.Description("Optional. Indicates from where in the context playback should start. Only available when context_uri corresponds to an album or playlist object\n\"position\" is zero based and can’t be negative. Example: `\"offset\": {\"position\": 5}`\n\"uri\" is a string representing the uri of the item to start at. Example: `\"offset\": {\"uri\": \"spotify:track:1301WleyT98MSxVHPZCA6M\"}`\n")),
+	mcp.WithNumber("position_ms", mcp.Description("integer")),
 )
 
 // NewStartAUsersPlaybackHandler creates a handler for the start-a-users-playback tool.
@@ -1416,7 +1510,20 @@ func NewStartAUsersPlaybackHandler(client *spotify.ClientWithResponses) func(con
 		if v := req.GetString("device_id", ""); v != "" {
 			params.DeviceId = &v
 		}
-		resp, err := client.StartAUsersPlaybackWithResponse(ctx, params, spotify.StartAUsersPlaybackJSONRequestBody{})
+		bodyArgs := make(map[string]interface{})
+		for k, v := range req.GetArguments() {
+			bodyArgs[k] = v
+		}
+		delete(bodyArgs, "device_id")
+		bodyJSON, err := json.Marshal(bodyArgs)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
+		}
+		var body spotify.StartAUsersPlaybackJSONRequestBody
+		if err := json.Unmarshal(bodyJSON, &body); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
+		}
+		resp, err := client.StartAUsersPlaybackWithResponse(ctx, params, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -1464,12 +1571,26 @@ var TransferAUsersPlaybackToolScopes = []string{"user-modify-playback-state"}
 
 var TransferAUsersPlaybackTool = mcp.NewTool("transfer-a-users-playback",
 	mcp.WithDescription("Transfer Playback\n\n\nTransfer playback to a new device and optionally begin playback. This API only works for users who have Spotify Premium. The order of execution is not guaranteed when you use this API with other Player API endpoints.\n"),
+	mcp.WithArray("device_ids", mcp.Required(), mcp.Description("A JSON array containing the ID of the device on which playback should be started/transferred.<br/>For example:`{device_ids:[\"74ASZWbe4lXaubB36ztrGX\"]}`<br/>_**Note**: Although an array is accepted, only a single device_id is currently supported. Supplying more than one will return `400 Bad Request`_\n")),
+	mcp.WithBoolean("play", mcp.Description("**true**: ensure playback happens on new device.<br/>**false** or not provided: keep the current playback state.\n")),
 )
 
 // NewTransferAUsersPlaybackHandler creates a handler for the transfer-a-users-playback tool.
 func NewTransferAUsersPlaybackHandler(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		resp, err := client.TransferAUsersPlaybackWithResponse(ctx, spotify.TransferAUsersPlaybackJSONRequestBody{})
+		bodyArgs := make(map[string]interface{})
+		for k, v := range req.GetArguments() {
+			bodyArgs[k] = v
+		}
+		bodyJSON, err := json.Marshal(bodyArgs)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
+		}
+		var body spotify.TransferAUsersPlaybackJSONRequestBody
+		if err := json.Unmarshal(bodyJSON, &body); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
+		}
+		resp, err := client.TransferAUsersPlaybackWithResponse(ctx, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

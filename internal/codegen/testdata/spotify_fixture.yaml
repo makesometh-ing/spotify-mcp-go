@@ -107,12 +107,31 @@ paths:
       responses:
         "204":
           description: Playback transferred
+  /me/playlists:
+    post:
+      operationId: create-playlist
+      summary: Create Playlist
+      description: Create a playlist for the current Spotify user.
+      tags:
+        - Playlists
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlaylistRequest"
+      security:
+        - oauth_2_0:
+            - playlist-modify-public
+            - playlist-modify-private
+      responses:
+        "201":
+          description: Playlist created
   /search:
     get:
       operationId: search
       summary: Search for Item
       description: Get Spotify catalog information about items matching a keyword.
-      deprecated: true
+      deprecated: false
       tags:
         - Search
       parameters:
@@ -126,7 +145,13 @@ paths:
           in: query
           required: true
           schema:
-            type: string
+            type: array
+            items:
+              type: string
+              enum:
+                - album
+                - artist
+                - track
           description: Item types to search across.
       security:
         - oauth_2_0: []
@@ -140,8 +165,26 @@ components:
       properties:
         uris:
           type: array
+          description: Spotify track URIs to add.
           items:
             type: string
+        position:
+          type: integer
+          description: Position to insert items.
+    CreatePlaylistRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: The name for the new playlist.
+        description:
+          type: string
+          description: Playlist description.
+        public:
+          type: boolean
+          description: Whether the playlist is public.
     TransferPlaybackRequest:
       type: object
       properties:
