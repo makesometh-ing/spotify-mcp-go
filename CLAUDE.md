@@ -11,11 +11,12 @@ Every issue follows this uninterrupted flow. Do not stop or ask for confirmation
 5. Implement (TDD, see below). Run `go mod tidy` after adding new imports.
 6. `/verify-acceptance` to verify criteria, check boxes, and post evidence
 7. `/verify-prd-conformance` to check implementation against PRD. If violations found, fix them and re-run steps 6-7.
-8. Commit, push, create PR
-9. Merge PR: `gh pr merge <N> --squash --delete-branch`
-10. Return to main: `git checkout main && git pull`
-11. Mark done: `linear issue update <ID> --state Done`
-12. Return to step 1 for the next issue
+8. Run `make lint` and `make test`. Fix any failures before proceeding.
+9. Commit, push, create PR
+10. Merge PR: `gh pr merge <N> --squash --delete-branch`
+11. Return to main: `git checkout main && git pull`
+12. Mark done: `linear issue update <ID> --state Done`
+13. Return to step 1 for the next issue
 
 When acceptance criteria pass AND PRD conformance passes, the work is done. Commit and land immediately. The only reason to pause is a failure (tests, build, push, merge, PRD violation).
 
@@ -55,7 +56,7 @@ Linear ID is mandatory. Every commit ties back to a Linear issue. If no issue ex
 ## Go Conventions
 
 - After adding a new import that introduces a dependency, run `go mod tidy` before running tests.
-- Run `go vet ./...` before committing.
+- Run `make lint` before committing. This runs `golangci-lint`, which is the same linter CI uses. Do not substitute `go vet`; it is a subset and will miss checks like `errcheck`.
 
 ## CLI Reference
 
