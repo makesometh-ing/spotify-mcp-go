@@ -42,6 +42,7 @@ Three artifacts from one repo:
 | `SPOTIFY_CLIENT_SECRET` | Yes | - | Spotify app client secret |
 | `SPOTIFY_MCP_PORT` | No | `8080` | HTTP server port |
 | `SPOTIFY_MCP_TOKEN_DB` | No | `~/.config/spotify-mcp-go/auth/tokens.db` | SQLite token storage path |
+| `SPOTIFY_MCP_BASE_URL` | No | `http://127.0.0.1:<port>` | Public base URL for hosting behind a reverse proxy or tunnel. When set, all OAuth metadata, callback redirects, and startup output use this URL. |
 
 The server reads from a `.env` file in the working directory if present, with environment variables taking precedence. A `.env.example` file is included in the repo.
 
