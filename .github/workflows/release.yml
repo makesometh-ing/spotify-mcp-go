@@ -75,3 +75,71 @@ jobs:
             --title "${{ github.ref_name }}" \
             --generate-notes \
             artifacts/*
+
+  homebrew:
+    runs-on: ubuntu-latest
+    needs: [release]
+    steps:
+      - name: Compute checksums and update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          REPO="makesometh-ing/spotify-mcp-go"
+          TAP_REPO="makesometh-ing/homebrew-tap"
+
+          # Download darwin binaries from the release
+          for arch in amd64 arm64; do
+            curl -fsSL -o "spotify-mcp-go-darwin-${arch}" \
+              "https://github.com/${REPO}/releases/download/${TAG}/spotify-mcp-go-darwin-${arch}"
+          done
+
+          # Compute SHA256 checksums
+          SHA_ARM64=$(sha256sum spotify-mcp-go-darwin-arm64 | awk '{print $1}')
+          SHA_AMD64=$(sha256sum spotify-mcp-go-darwin-amd64 | awk '{print $1}')
+
+          # Clone the tap repo and update the formula
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${TAP_REPO}.git" tap
+          cd tap
+
+          cat > Formula/spotify-mcp-go.rb <<FORMULA
+          # typed: false
+          # frozen_string_literal: true
+
+          class SpotifyMcpGo < Formula
+            desc "MCP server that exposes the Spotify Web API as MCP tools"
+            homepage "https://github.com/${REPO}"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/${REPO}/releases/download/${TAG}/spotify-mcp-go-darwin-arm64"
+                sha256 "${SHA_ARM64}"
+
+                def install
+                  bin.install "spotify-mcp-go-darwin-arm64" => "spotify-mcp-go"
+                end
+              elsif Hardware::CPU.intel?
+                url "https://github.com/${REPO}/releases/download/${TAG}/spotify-mcp-go-darwin-amd64"
+                sha256 "${SHA_AMD64}"
+
+                def install
+                  bin.install "spotify-mcp-go-darwin-amd64" => "spotify-mcp-go"
+                end
+              end
+            end
+
+            test do
+              assert_match "spotify-mcp-go", shell_output("#{bin}/spotify-mcp-go --help 2>&1", 2)
+            end
+          end
+          FORMULA
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/spotify-mcp-go.rb
+          git commit -m "Update spotify-mcp-go to ${VERSION}"
+          git push
