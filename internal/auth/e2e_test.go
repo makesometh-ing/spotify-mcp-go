@@ -60,12 +60,14 @@ func TestE2EOAuthFlow(t *testing.T) {
 	require.NoError(t, err)
 	challenge := CodeChallenge(codeVerifier)
 
+	clientState := "e2e-csrf-state-12345"
 	authResp, err := noFollow.Get(ts.URL + "/authorize?" + url.Values{
 		"client_id":             {clientID},
 		"redirect_uri":          {"http://test-client/callback"},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
 		"response_type":         {"code"},
+		"state":                 {clientState},
 	}.Encode())
 	require.NoError(t, err)
 	defer authResp.Body.Close()
@@ -91,6 +93,8 @@ func TestE2EOAuthFlow(t *testing.T) {
 	assert.Equal(t, "test-client", clientRedirect.Host)
 	mcpCode := clientRedirect.Query().Get("code")
 	require.NotEmpty(t, mcpCode, "should redirect with MCP auth code")
+	assert.Equal(t, clientState, clientRedirect.Query().Get("state"),
+		"callback redirect must round-trip the client's original state parameter")
 
 	// --- Step 4: POST /token (authorization_code) → MCP tokens ---
 	tokenResp, err := http.PostForm(ts.URL+"/token", url.Values{

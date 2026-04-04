@@ -62,6 +62,7 @@ type PendingAuth struct {
 	RedirectURI     string
 	CodeChallenge   string
 	SpotifyVerifier string
+	ClientState     string
 }
 
 // PendingCode holds the state for a pending MCP authorization code exchange.
@@ -220,6 +221,9 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	q := redirectURL.Query()
 	q.Set("code", mcpCode)
+	if pending.ClientState != "" {
+		q.Set("state", pending.ClientState)
+	}
 	redirectURL.RawQuery = q.Encode()
 
 	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
@@ -476,6 +480,9 @@ func (h *Handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Capture the client's state parameter (opaque, for round-tripping)
+	clientState := r.URL.Query().Get("state")
+
 	// Store pending auth state
 	h.mu.Lock()
 	h.pendingAuths[state] = PendingAuth{
@@ -483,6 +490,7 @@ func (h *Handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		RedirectURI:     redirectURI,
 		CodeChallenge:   codeChallenge,
 		SpotifyVerifier: spotifyVerifier,
+		ClientState:     clientState,
 	}
 	h.mu.Unlock()
 
