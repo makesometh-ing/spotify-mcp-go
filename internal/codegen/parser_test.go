@@ -18,6 +18,19 @@ func loadFixture(t *testing.T) []byte {
 	return data
 }
 
+// backupFile saves the current content of a file and restores it on test cleanup.
+// If the file does not exist, cleanup removes any file created at that path.
+func backupFile(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		t.Cleanup(func() { os.Remove(path) })
+		return
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.WriteFile(path, data, 0644) })
+}
+
 func TestParserParsesValidSpec(t *testing.T) {
 	data := loadFixture(t)
 	spec, err := Parse(data)
@@ -39,6 +52,28 @@ func TestParserExcludesDeprecated(t *testing.T) {
 	}
 }
 
+func TestParserServerURL(t *testing.T) {
+	data := loadFixture(t)
+	spec, err := Parse(data)
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.spotify.com/v1", spec.ServerURL)
+}
+
+func TestParserServerURLMissing(t *testing.T) {
+	spec, err := Parse([]byte(`openapi: "3.0.3"
+info:
+  title: Test
+  version: "1.0.0"
+paths:
+  /foo:
+    get:
+      operationId: get-foo
+      summary: Get Foo
+`))
+	require.NoError(t, err)
+	assert.Empty(t, spec.ServerURL)
+}
+
 func TestParserActiveOperations(t *testing.T) {
 	data := loadFixture(t)
 	spec, err := Parse(data)
@@ -52,17 +87,17 @@ func TestParserActiveOperations(t *testing.T) {
 	getPlaylist, ok := opsByID["get-playlist"]
 	require.True(t, ok, "get-playlist should be present")
 	assert.Equal(t, "GET", getPlaylist.Method)
-	assert.Equal(t, "/v1/playlists/{playlist_id}", getPlaylist.Path)
+	assert.Equal(t, "/playlists/{playlist_id}", getPlaylist.Path)
 
 	addTracks, ok := opsByID["add-tracks-to-playlist"]
 	require.True(t, ok, "add-tracks-to-playlist should be present")
 	assert.Equal(t, "POST", addTracks.Method)
-	assert.Equal(t, "/v1/playlists/{playlist_id}/tracks", addTracks.Path)
+	assert.Equal(t, "/playlists/{playlist_id}/tracks", addTracks.Path)
 
 	getPlayback, ok := opsByID["get-playback-state"]
 	require.True(t, ok, "get-playback-state should be present")
 	assert.Equal(t, "GET", getPlayback.Method)
-	assert.Equal(t, "/v1/me/player", getPlayback.Path)
+	assert.Equal(t, "/me/player", getPlayback.Path)
 }
 
 func TestParserPathParameters(t *testing.T) {

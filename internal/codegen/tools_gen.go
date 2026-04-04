@@ -12,8 +12,8 @@ import (
 )
 
 // GenerateToolsFile generates and writes the MCP tools Go source file.
-func GenerateToolsFile(ops []Operation, packageName, outputPath string) error {
-	code, err := GenerateTools(ops, packageName)
+func GenerateToolsFile(ops []Operation, packageName, serverURL, outputPath string) error {
+	code, err := GenerateTools(ops, packageName, serverURL)
 	if err != nil {
 		return err
 	}
@@ -26,7 +26,8 @@ func GenerateToolsFile(ops []Operation, packageName, outputPath string) error {
 
 // GenerateTools generates MCP tool definitions Go source code from parsed operations.
 // Operations are sorted by operationID for deterministic output.
-func GenerateTools(ops []Operation, packageName string) (string, error) {
+// If serverURL is non-empty, a const ServerURL is emitted in the generated code.
+func GenerateTools(ops []Operation, packageName, serverURL string) (string, error) {
 	sorted := make([]Operation, len(ops))
 	copy(sorted, ops)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -35,6 +36,7 @@ func GenerateTools(ops []Operation, packageName string) (string, error) {
 
 	data := toolsTemplateData{
 		PackageName: packageName,
+		ServerURL:   serverURL,
 	}
 	for _, op := range sorted {
 		td := newToolData(op)
@@ -67,6 +69,7 @@ func GenerateTools(ops []Operation, packageName string) (string, error) {
 
 type toolsTemplateData struct {
 	PackageName    string
+	ServerURL      string
 	Tools          []toolData
 	HasArrayParams bool
 }
@@ -223,6 +226,11 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
 )
+{{- if .ServerURL}}
+
+// ServerURL is the Spotify API server URL extracted from the OpenAPI spec's servers block.
+const ServerURL = {{quote .ServerURL}}
+{{- end}}
 
 {{- range .Tools}}
 

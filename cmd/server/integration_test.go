@@ -81,6 +81,13 @@ func newMockSpotifyAPI(t *testing.T) *mockSpotifyAPI {
 		m.mu.Lock()
 		m.requests = append(m.requests, r)
 		m.mu.Unlock()
+
+		// Only serve paths under /v1, matching the real Spotify API.
+		if !strings.HasPrefix(r.URL.Path, "/v1/") {
+			http.Error(w, `{"error":{"status":404,"message":"Service not found"}}`, http.StatusNotFound)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"id":   "playlist-123",
@@ -293,7 +300,7 @@ func startServer(t *testing.T, oauthURL, apiURL string) string {
 func TestFullServerIntegrationRoutes(t *testing.T) {
 	oauth := newMockSpotifyOAuth(t)
 	api := newMockSpotifyAPI(t)
-	serverURL := startServer(t, oauth.URL, api.URL)
+	serverURL := startServer(t, oauth.URL, api.URL+"/v1")
 
 	// Well-known endpoints
 	resp, err := http.Get(serverURL + "/.well-known/oauth-protected-resource")
@@ -322,7 +329,7 @@ func TestFullServerIntegrationRoutes(t *testing.T) {
 func TestFullServerIntegrationOAuthFlow(t *testing.T) {
 	oauth := newMockSpotifyOAuth(t)
 	api := newMockSpotifyAPI(t)
-	serverURL := startServer(t, oauth.URL, api.URL)
+	serverURL := startServer(t, oauth.URL, api.URL+"/v1")
 
 	token := completeOAuth(t, serverURL)
 	assert.NotEmpty(t, token, "should receive an MCP access token")
@@ -331,7 +338,7 @@ func TestFullServerIntegrationOAuthFlow(t *testing.T) {
 func TestFullServerIntegrationToolsList(t *testing.T) {
 	oauth := newMockSpotifyOAuth(t)
 	api := newMockSpotifyAPI(t)
-	serverURL := startServer(t, oauth.URL, api.URL)
+	serverURL := startServer(t, oauth.URL, api.URL+"/v1")
 	token := completeOAuth(t, serverURL)
 
 	session := initSession(t, serverURL, token)
@@ -366,7 +373,7 @@ func TestFullServerIntegrationToolsList(t *testing.T) {
 func TestFullServerIntegrationToolInvocation(t *testing.T) {
 	oauth := newMockSpotifyOAuth(t)
 	api := newMockSpotifyAPI(t)
-	serverURL := startServer(t, oauth.URL, api.URL)
+	serverURL := startServer(t, oauth.URL, api.URL+"/v1")
 	token := completeOAuth(t, serverURL)
 
 	session := initSession(t, serverURL, token)
@@ -398,14 +405,14 @@ func TestFullServerIntegrationToolInvocation(t *testing.T) {
 	require.NotEmpty(t, api.requests)
 	lastReq := api.requests[len(api.requests)-1]
 	api.mu.Unlock()
-	assert.Equal(t, "/playlists/abc123", lastReq.URL.Path)
+	assert.Equal(t, "/v1/playlists/abc123", lastReq.URL.Path)
 	assert.Equal(t, "Bearer spotify-access-token", lastReq.Header.Get("Authorization"))
 }
 
 func TestFullServerIntegration401(t *testing.T) {
 	oauth := newMockSpotifyOAuth(t)
 	api := newMockSpotifyAPI(t)
-	serverURL := startServer(t, oauth.URL, api.URL)
+	serverURL := startServer(t, oauth.URL, api.URL+"/v1")
 
 	resp, err := http.Post(serverURL+"/mcp", "application/json",
 		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
@@ -421,7 +428,7 @@ func TestFullServerIntegration401(t *testing.T) {
 func TestFullServerIntegrationTokenRefresh(t *testing.T) {
 	oauth := newMockSpotifyOAuth(t)
 	api := newMockSpotifyAPI(t)
-	serverURL := startServer(t, oauth.URL, api.URL)
+	serverURL := startServer(t, oauth.URL, api.URL+"/v1")
 
 	// Complete OAuth (this stores Spotify tokens with 3600s expiry)
 	token := completeOAuth(t, serverURL)
@@ -478,7 +485,7 @@ func TestFullServerIntegrationTokenRefresh(t *testing.T) {
 func TestFullServerIntegrationStreamableHTTP(t *testing.T) {
 	oauth := newMockSpotifyOAuth(t)
 	api := newMockSpotifyAPI(t)
-	serverURL := startServer(t, oauth.URL, api.URL)
+	serverURL := startServer(t, oauth.URL, api.URL+"/v1")
 	token := completeOAuth(t, serverURL)
 
 	// Streamable HTTP transport: POST to /mcp returns JSON-RPC response over HTTP
@@ -506,7 +513,7 @@ func TestFullServerIntegrationStreamableHTTP(t *testing.T) {
 func TestFullServerIntegrationConcurrent(t *testing.T) {
 	oauth := newMockSpotifyOAuth(t)
 	api := newMockSpotifyAPI(t)
-	serverURL := startServer(t, oauth.URL, api.URL)
+	serverURL := startServer(t, oauth.URL, api.URL+"/v1")
 
 	const numClients = 5
 	var wg sync.WaitGroup

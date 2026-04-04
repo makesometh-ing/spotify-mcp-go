@@ -12,6 +12,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// ServerURL is the Spotify API server URL extracted from the OpenAPI spec's servers block.
+const ServerURL = "https://api.spotify.com/v1"
+
 // AddItemsToPlaylistToolScopes lists the OAuth scopes required by the add-items-to-playlist tool.
 var AddItemsToPlaylistToolScopes = []string{"playlist-modify-public", "playlist-modify-private"}
 

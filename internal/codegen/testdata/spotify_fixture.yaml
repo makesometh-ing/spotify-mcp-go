@@ -2,8 +2,10 @@ openapi: "3.0.3"
 info:
   title: Spotify Web API (Test Fixture)
   version: "1.0.0"
+servers:
+  - url: https://api.spotify.com/v1
 paths:
-  /v1/playlists/{playlist_id}:
+  /playlists/{playlist_id}:
     get:
       operationId: get-playlist
       summary: Get Playlist
@@ -35,7 +37,7 @@ paths:
       responses:
         "200":
           description: A playlist
-  /v1/playlists/{playlist_id}/tracks:
+  /playlists/{playlist_id}/tracks:
     post:
       operationId: add-tracks-to-playlist
       summary: Add Items to Playlist
@@ -61,7 +63,7 @@ paths:
       responses:
         "201":
           description: Tracks added
-  /v1/me/player:
+  /me/player:
     get:
       operationId: get-playback-state
       summary: Get Playback State
@@ -105,7 +107,7 @@ paths:
       responses:
         "204":
           description: Playback transferred
-  /v1/search:
+  /search:
     get:
       operationId: search
       summary: Search for Item

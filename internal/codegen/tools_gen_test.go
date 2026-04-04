@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -21,7 +20,7 @@ func parseFixtureOps(t *testing.T) []Operation {
 
 func TestToolGenGeneratesOneToolPerOperation(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// 3 active operations in the fixture, so 3 tool definitions
@@ -31,7 +30,7 @@ func TestToolGenGeneratesOneToolPerOperation(t *testing.T) {
 
 func TestToolGenToolNames(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// Tool names must match operationId directly
@@ -42,7 +41,7 @@ func TestToolGenToolNames(t *testing.T) {
 
 func TestToolGenToolDescriptions(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// Descriptions come from the OpenAPI summary field
@@ -56,7 +55,7 @@ func TestToolGenToolDescriptions(t *testing.T) {
 
 func TestToolGenRequiredPathParams(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// playlist_id is a required path parameter in get-playlist and add-tracks-to-playlist.
@@ -66,7 +65,7 @@ func TestToolGenRequiredPathParams(t *testing.T) {
 
 func TestToolGenQueryParamTypes(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// market and fields are string query params
@@ -77,7 +76,7 @@ func TestToolGenQueryParamTypes(t *testing.T) {
 
 func TestToolGenOptionalParamsNotRequired(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// market is optional. Find the market WithString call and verify it does NOT
@@ -90,7 +89,7 @@ func TestToolGenOptionalParamsNotRequired(t *testing.T) {
 
 func TestToolGenParamDescriptions(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// Parameter descriptions from the OpenAPI spec
@@ -102,7 +101,7 @@ func TestToolGenParamDescriptions(t *testing.T) {
 
 func TestToolGenHandlerSignatures(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// Each tool has a handler factory returning the correct mcp-go handler signature
@@ -118,10 +117,10 @@ func TestToolGenHandlerSignatures(t *testing.T) {
 func TestToolGenDeterministic(t *testing.T) {
 	ops := parseFixtureOps(t)
 
-	code1, err := GenerateTools(ops, "tools")
+	code1, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
-	code2, err := GenerateTools(ops, "tools")
+	code2, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, code1, code2, "generated tools code should be deterministic")
@@ -129,7 +128,7 @@ func TestToolGenDeterministic(t *testing.T) {
 
 func TestToolGenScopes(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// Scopes should be embedded per tool as comments or variables
@@ -141,7 +140,7 @@ func TestToolGenScopes(t *testing.T) {
 
 func TestToolGenAllScopesFunction(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// AllScopes() must exist and return deduplicated, sorted scopes
@@ -149,9 +148,31 @@ func TestToolGenAllScopesFunction(t *testing.T) {
 	assert.Contains(t, code, "sort.Strings")
 }
 
+func TestToolGenServerURLConstant(t *testing.T) {
+	data := loadFixture(t)
+	spec, err := Parse(data)
+	require.NoError(t, err)
+
+	code, err := GenerateTools(spec.Operations, "tools", spec.ServerURL)
+	require.NoError(t, err)
+
+	assert.Contains(t, code, `const ServerURL = "https://api.spotify.com/v1"`)
+}
+
+func TestToolGenServerURLEmpty(t *testing.T) {
+	data := loadFixture(t)
+	spec, err := Parse(data)
+	require.NoError(t, err)
+
+	code, err := GenerateTools(spec.Operations, "tools", "")
+	require.NoError(t, err)
+
+	assert.NotContains(t, code, "const ServerURL")
+}
+
 func TestToolGenExcludesDeprecated(t *testing.T) {
 	ops := parseFixtureOps(t)
-	code, err := GenerateTools(ops, "tools")
+	code, err := GenerateTools(ops, "tools", "")
 	require.NoError(t, err)
 
 	// Deprecated operations: transfer-playback, search
@@ -170,10 +191,8 @@ func TestToolGenBuildIntegration(t *testing.T) {
 	require.NoError(t, err)
 	clientPath := filepath.Join(projectRoot, oapiConfig.ClientOutput)
 	typesPath := filepath.Join(projectRoot, oapiConfig.TypesOutput)
-	t.Cleanup(func() {
-		os.Remove(clientPath)
-		os.Remove(typesPath)
-	})
+	backupFile(t, clientPath)
+	backupFile(t, typesPath)
 	err = GenerateFromSpec(fixture, &GenerateConfig{
 		PackageName:  oapiConfig.PackageName,
 		ClientOutput: clientPath,
@@ -188,10 +207,8 @@ func TestToolGenBuildIntegration(t *testing.T) {
 
 	// Generate tools file
 	toolsPath := filepath.Join(projectRoot, "internal", "tools", "generated_tools.go")
-	t.Cleanup(func() {
-		os.Remove(toolsPath)
-	})
-	err = GenerateToolsFile(spec.Operations, "tools", toolsPath)
+	backupFile(t, toolsPath)
+	err = GenerateToolsFile(spec.Operations, "tools", spec.ServerURL, toolsPath)
 	require.NoError(t, err)
 
 	// go mod tidy to resolve any new imports
