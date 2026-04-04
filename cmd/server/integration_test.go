@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -262,6 +263,7 @@ func startServer(t *testing.T, oauthURL, apiURL string) string {
 		Port:                 "0",
 		SpotifyClientID:      "test-client-id",
 		SpotifyClientSecret:  "test-client-secret",
+		TokenDBPath:          filepath.Join(t.TempDir(), "tokens.db"),
 		SpotifyTokenEndpoint: oauthURL,
 		SpotifyAPIBaseURL:    apiURL,
 	}
@@ -271,7 +273,7 @@ func startServer(t *testing.T, oauthURL, apiURL string) string {
 	addrCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- run(ctx, cfg, testToolRegs(), io.Discard, addrCh)
+		errCh <- run(ctx, cfg, testToolRegs(), nil, io.Discard, addrCh)
 	}()
 
 	select {

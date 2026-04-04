@@ -215,6 +215,7 @@ package {{.PackageName}}
 import (
 	"context"
 	"fmt"
+	"sort"
 {{- if .HasArrayParams}}
 	"strings"
 {{- end}}
@@ -315,5 +316,21 @@ func AllRegistrations() []ToolRegistration {
 		{Tool: {{.VarName}}, NewHandler: {{.HandlerName}}},
 {{- end}}
 	}
+}
+
+// AllScopes returns the deduplicated, sorted union of all OAuth scopes required by all tools.
+func AllScopes() []string {
+	seen := make(map[string]bool)
+{{- range .Tools}}
+	for _, s := range {{.VarName}}Scopes {
+		seen[s] = true
+	}
+{{- end}}
+	result := make([]string, 0, len(seen))
+	for s := range seen {
+		result = append(result, s)
+	}
+	sort.Strings(result)
+	return result
 }
 `

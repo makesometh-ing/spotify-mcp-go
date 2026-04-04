@@ -33,7 +33,7 @@ func TestServerStartupListensOnPort(t *testing.T) {
 	addrCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- run(ctx, cfg, nil, &buf, addrCh)
+		errCh <- run(ctx, cfg, nil, nil, &buf, addrCh)
 	}()
 
 	select {

@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/makesometh-ing/spotify-mcp-go/internal/tools"
 )
 
 func main() {
@@ -18,7 +20,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	if err := run(ctx, cfg, nil, os.Stdout, nil); err != nil {
+	if err := run(ctx, cfg, tools.AllRegistrations(), tools.AllScopes(), os.Stdout, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
 	}
