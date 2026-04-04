@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"go.uber.org/zap"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth"
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
@@ -26,7 +28,12 @@ type ToolRegistration struct {
 // Register registers all tool registrations with the MCP server. It creates a
 // Spotify ClientWithResponses whose HTTP transport injects the caller's Spotify
 // access token and handles transparent refresh.
-func Register(srv *mcpserver.MCPServer, registrations []ToolRegistration, tokenStore store.TokenStore, spotifyClient *auth.SpotifyClient, baseURL string) {
+func Register(srv *mcpserver.MCPServer, registrations []ToolRegistration, tokenStore store.TokenStore, spotifyClient *auth.SpotifyClient, baseURL string, logger *zap.SugaredLogger) {
+	if logger == nil {
+		logger = zap.NewNop().Sugar()
+	}
+	logger = logger.Named("tools")
+
 	var refresher *auth.TokenRefresher
 	if spotifyClient != nil {
 		refresher = auth.NewTokenRefresher(tokenStore, spotifyClient)
@@ -37,13 +44,42 @@ func Register(srv *mcpserver.MCPServer, registrations []ToolRegistration, tokenS
 			store:     tokenStore,
 			refresher: refresher,
 			base:      http.DefaultTransport,
+			logger:    logger.Named("spotify"),
 		},
 	}
 
 	client, _ := spotify.NewClientWithResponses(baseURL, spotify.WithHTTPClient(httpClient))
 
 	for _, reg := range registrations {
-		srv.AddTool(reg.Tool, reg.NewHandler(client))
+		handler := reg.NewHandler(client)
+		toolName := reg.Tool.Name
+		srv.AddTool(reg.Tool, loggingHandler(logger, toolName, handler))
+	}
+}
+
+// loggingHandler wraps a tool handler to log invocation details.
+func loggingHandler(logger *zap.SugaredLogger, toolName string, handler func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		start := time.Now()
+		result, err := handler(ctx, req)
+		duration := time.Since(start)
+
+		success := err == nil && (result == nil || !result.IsError)
+		var response string
+		if result != nil && len(result.Content) > 0 {
+			if tc, ok := result.Content[0].(mcp.TextContent); ok {
+				response = tc.Text
+			}
+		}
+
+		logger.Infow("tool invocation",
+			"tool", toolName,
+			"args", req.Params.Arguments,
+			"duration", duration,
+			"success", success,
+			"response", response,
+		)
+		return result, err
 	}
 }
 
@@ -54,6 +90,7 @@ type spotifyTransport struct {
 	store     store.TokenStore
 	refresher *auth.TokenRefresher
 	base      http.RoundTripper
+	logger    *zap.SugaredLogger
 }
 
 func (t *spotifyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -82,5 +119,20 @@ func (t *spotifyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	r2 := r.Clone(r.Context())
 	r2.Header.Set("Authorization", "Bearer "+accessToken)
-	return t.base.RoundTrip(r2)
+
+	start := time.Now()
+	resp, err := t.base.RoundTrip(r2)
+	duration := time.Since(start)
+
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+	}
+	t.logger.Debugw("spotify api call",
+		"endpoint", r.URL.Path,
+		"status", status,
+		"duration", duration,
+		"error", err,
+	)
+	return resp, err
 }

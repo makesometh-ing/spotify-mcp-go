@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
+	"go.uber.org/zap"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth"
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
@@ -67,6 +69,23 @@ func loadConfig(envFilePath string) (*serverConfig, error) {
 	return cfg, nil
 }
 
+// newLogger creates a SugaredLogger based on the debug flag.
+// When debug is false, returns a no-op logger (zero output).
+// When debug is true, returns a development logger with console encoding to stderr.
+func newLogger(debug bool) *zap.SugaredLogger {
+	if !debug {
+		return zap.NewNop().Sugar()
+	}
+	cfg := zap.NewDevelopmentConfig()
+	cfg.EncoderConfig.EncodeLevel = zap.NewDevelopmentConfig().EncoderConfig.EncodeLevel
+	logger, err := cfg.Build()
+	if err != nil {
+		// Fall back to nop if config fails (should not happen)
+		return zap.NewNop().Sugar()
+	}
+	return logger.Sugar()
+}
+
 func printStartupInfo(out io.Writer, port string) {
 	_, _ = fmt.Fprintf(out, "MCP endpoint: http://127.0.0.1:%s/mcp\n", port)
 	_, _ = fmt.Fprintf(out, "Callback URL: http://127.0.0.1:%s/callback\n", port)
@@ -78,7 +97,7 @@ func printStartupInfo(out io.Writer, port string) {
 // run starts the MCP server. It blocks until ctx is cancelled. When the server
 // is ready to accept connections, the listen address is sent on addrCh (if non-nil).
 // toolRegs may be nil if no tools are registered.
-func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistration, spotifyScopes []string, out io.Writer, addrCh chan<- string) error {
+func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistration, spotifyScopes []string, out io.Writer, addrCh chan<- string, logger *zap.SugaredLogger) error {
 	dbPath := cfg.TokenDBPath
 	if strings.HasPrefix(dbPath, "~/") {
 		home, err := os.UserHomeDir()
@@ -87,10 +106,11 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 		}
 		dbPath = home + dbPath[1:]
 	}
-	tokenStore, err := store.NewSQLiteTokenStore(dbPath)
+	sqliteStore, err := store.NewSQLiteTokenStore(dbPath)
 	if err != nil {
 		return fmt.Errorf("opening token store: %w", err)
 	}
+	tokenStore := store.NewLoggingTokenStore(sqliteStore, logger)
 
 	spotifyClient := &auth.SpotifyClient{
 		ClientID:      cfg.SpotifyClientID,
@@ -104,6 +124,7 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 		SpotifyScopes:        spotifyScopes,
 		Store:                tokenStore,
 		SpotifyTokenEndpoint: cfg.SpotifyTokenEndpoint,
+		Logger:               logger,
 	})
 
 	mcpServer := server.NewMCPServer("spotify-mcp-go", "1.0.0",
@@ -115,7 +136,7 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 		apiBase = "https://api.spotify.com"
 	}
 	if toolRegs != nil {
-		tools.Register(mcpServer, toolRegs, tokenStore, spotifyClient, apiBase)
+		tools.Register(mcpServer, toolRegs, tokenStore, spotifyClient, apiBase, logger)
 	}
 
 	httpTransport := server.NewStreamableHTTPServer(mcpServer)
@@ -134,14 +155,16 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 
 	authHandler.SetBaseURL("http://127.0.0.1:" + port)
 	printStartupInfo(out, port)
+	logger.Infow("server started", "address", addr)
 
 	if addrCh != nil {
 		addrCh <- addr
 	}
 
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: httpLoggingMiddleware(logger, mux)}
 	go func() {
 		<-ctx.Done()
+		logger.Info("server shutting down")
 		_ = srv.Shutdown(context.Background())
 	}()
 
@@ -149,6 +172,32 @@ func run(ctx context.Context, cfg *serverConfig, toolRegs []tools.ToolRegistrati
 		return err
 	}
 	return nil
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the status code.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	sr.status = code
+	sr.ResponseWriter.WriteHeader(code)
+}
+
+// httpLoggingMiddleware logs method, path, status code, and duration for every request.
+func httpLoggingMiddleware(logger *zap.SugaredLogger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		logger.Infow("http request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"duration", time.Since(start),
+		)
+	})
 }
 
 // readEnvFile parses a .env file into a key-value map.

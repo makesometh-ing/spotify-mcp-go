@@ -7,6 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestTokenRecordFields(t *testing.T) {
@@ -59,6 +62,43 @@ func (m *mockTokenStore) Load(ctx context.Context, clientID string) (*TokenRecor
 func (m *mockTokenStore) Delete(ctx context.Context, clientID string) error {
 	delete(m.records, clientID)
 	return nil
+}
+
+func TestLoggingTokenStoreLogsOperations(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	logger := zap.New(core).Sugar()
+
+	inner := NewInMemoryTokenStore()
+	store := NewLoggingTokenStore(inner, logger)
+	ctx := context.Background()
+
+	record := &TokenRecord{SpotifyAccessToken: "tok"}
+
+	// Store
+	err := store.Store(ctx, "client-1", record)
+	require.NoError(t, err)
+
+	// Load
+	loaded, err := store.Load(ctx, "client-1")
+	require.NoError(t, err)
+	assert.Equal(t, "tok", loaded.SpotifyAccessToken)
+
+	// Delete
+	err = store.Delete(ctx, "client-1")
+	require.NoError(t, err)
+
+	// Verify log messages
+	messages := make([]string, 0, logs.Len())
+	for _, entry := range logs.All() {
+		messages = append(messages, entry.Message)
+	}
+	assert.Contains(t, messages, "token store: store")
+	assert.Contains(t, messages, "token store: load")
+	assert.Contains(t, messages, "token store: delete")
+}
+
+func TestLoggingTokenStoreImplementsInterface(t *testing.T) {
+	var _ TokenStore = &LoggingTokenStore{}
 }
 
 func TestMockTokenStoreRoundTrip(t *testing.T) {

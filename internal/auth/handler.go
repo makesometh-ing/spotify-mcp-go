@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
 )
 
@@ -77,8 +79,9 @@ type HandlerConfig struct {
 	SpotifyClientSecret  string
 	SpotifyScopes        []string
 	Store                store.TokenStore
-	SpotifyTokenEndpoint string        // optional override for testing
-	MCPTokenTTL          time.Duration // optional, defaults to 1 hour
+	SpotifyTokenEndpoint string            // optional override for testing
+	MCPTokenTTL          time.Duration     // optional, defaults to 1 hour
+	Logger               *zap.SugaredLogger // optional, defaults to nop
 }
 
 // Handler implements the OAuth proxy HTTP endpoints for MCP clients.
@@ -92,6 +95,7 @@ type Handler struct {
 	spotifyClient   *SpotifyClient
 	pendingCodes    map[string]PendingCode // keyed by MCP auth code
 	tokenManager    *TokenManager
+	logger          *zap.SugaredLogger
 }
 
 // NewHandler creates a Handler with the given configuration.
@@ -103,6 +107,10 @@ func NewHandler(cfg HandlerConfig) *Handler {
 	ttl := cfg.MCPTokenTTL
 	if ttl == 0 {
 		ttl = time.Hour
+	}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = zap.NewNop().Sugar()
 	}
 	return &Handler{
 		spotifyClientID: cfg.SpotifyClientID,
@@ -116,6 +124,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		},
 		pendingCodes: make(map[string]PendingCode),
 		tokenManager: NewTokenManager(ttl),
+		logger:       logger.Named("auth"),
 	}
 }
 
@@ -177,13 +186,17 @@ func (h *Handler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	delete(h.pendingAuths, state)
 	h.mu.Unlock()
 
+	h.logger.Infow("callback received", "client_id", pending.ClientID)
+
 	// Exchange the Spotify authorization code for tokens
 	callbackURI := h.getBaseURL() + "/callback"
 	tokenResp, err := h.spotifyClient.ExchangeCode(r.Context(), code, callbackURI, pending.SpotifyVerifier)
 	if err != nil {
+		h.logger.Errorw("spotify token exchange failed", "client_id", pending.ClientID, "error", err)
 		http.Error(w, "spotify token exchange failed", http.StatusBadGateway)
 		return
 	}
+	h.logger.Infow("spotify token exchange", "client_id", pending.ClientID)
 
 	// Update the token record with Spotify tokens
 	record, err := h.store.Load(r.Context(), pending.ClientID)
@@ -235,7 +248,10 @@ func (h *Handler) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.FormValue("grant_type") {
+	grantType := r.FormValue("grant_type")
+	h.logger.Debugw("token request", "grant_type", grantType)
+
+	switch grantType {
 	case "authorization_code":
 		h.handleTokenCodeExchange(w, r)
 	case "refresh_token":
@@ -295,6 +311,8 @@ func (h *Handler) handleTokenCodeExchange(w http.ResponseWriter, r *http.Request
 		_ = h.store.Store(r.Context(), pending.ClientID, record)
 	}
 
+	h.logger.Infow("token exchange", "client_id", pending.ClientID)
+
 	writeTokenResponse(w, accessToken, refreshToken, int(h.tokenManager.TTL().Seconds()))
 }
 
@@ -331,6 +349,8 @@ func (h *Handler) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 		record.MCPTokenExpiry = time.Now().Add(h.tokenManager.TTL())
 		_ = h.store.Store(r.Context(), clientID, record)
 	}
+
+	h.logger.Infow("token refresh", "client_id", clientID)
 
 	writeTokenResponse(w, accessToken, refreshToken, int(h.tokenManager.TTL().Seconds()))
 }
@@ -437,6 +457,8 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 		resp["client_name"] = req.ClientName
 	}
 
+	h.logger.Infow("client registered", "client_id", clientID, "client_name", req.ClientName)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(resp)
@@ -479,6 +501,8 @@ func (h *Handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	h.logger.Infow("authorize request", "client_id", clientID, "redirect_uri", redirectURI)
 
 	// Capture the client's state parameter (opaque, for round-tripping)
 	clientState := r.URL.Query().Get("state")
