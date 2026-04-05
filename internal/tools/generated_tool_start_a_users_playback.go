@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
@@ -16,6 +17,10 @@ var StartAUsersPlaybackToolScopes = []string{"user-modify-playback-state"}
 var StartAUsersPlaybackTool = mcp.NewTool("start-a-users-playback",
 	mcp.WithDescription("Start/Resume Playback\n\n\nStart a new context or resume current playback on the user's active device. This API only works for users who have Spotify Premium. The order of execution is not guaranteed when you use this API with other Player API endpoints.\n"),
 	mcp.WithString("device_id"),
+	mcp.WithString("context_uri", mcp.Description("Optional. Spotify URI of the context to play.\nValid contexts are albums, artists & playlists.\n`{context_uri:\"spotify:album:1Je1IMUlBXcx1Fz0WE7oPT\"}`\n")),
+	mcp.WithObject("offset", mcp.Description("Optional. Indicates from where in the context playback should start. Only available when context_uri corresponds to an album or playlist object\n\"position\" is zero based and can’t be negative. Example: `\"offset\": {\"position\": 5}`\n\"uri\" is a string representing the uri of the item to start at. Example: `\"offset\": {\"uri\": \"spotify:track:1301WleyT98MSxVHPZCA6M\"}`\n")),
+	mcp.WithNumber("position_ms", mcp.Description("integer")),
+	mcp.WithArray("uris", mcp.Description("Optional. A JSON array of the Spotify track URIs to play.\nFor example: `{\"uris\": [\"spotify:track:4iV5W9uYEdYUVa79Axb7Rh\", \"spotify:track:1301WleyT98MSxVHPZCA6M\"]}`\n")),
 )
 
 // NewStartAUsersPlaybackHandler creates a handler for the start-a-users-playback tool.
@@ -28,6 +33,21 @@ func NewStartAUsersPlaybackHandler(client *spotify.ClientWithResponses) func(con
 			params.DeviceId = &v
 		}
 		var body spotify.StartAUsersPlaybackJSONRequestBody
+		if v, ok := args["context_uri"].(string); ok && v != "" {
+			body.ContextUri = &v
+		}
+		if v, ok := args["offset"]; ok {
+			raw, _ := json.Marshal(v)
+			_ = json.Unmarshal(raw, &body.Offset)
+		}
+		if v, ok := args["position_ms"]; ok {
+			n := toInt(v)
+			body.PositionMs = &n
+		}
+		if v, ok := args["uris"]; ok {
+			sl := toStringSlice(v)
+			body.Uris = &sl
+		}
 		resp, err := client.StartAUsersPlaybackWithResponse(ctx, params, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

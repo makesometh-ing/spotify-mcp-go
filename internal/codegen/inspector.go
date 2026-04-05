@@ -31,6 +31,7 @@ type FieldInfo struct {
 	GoType   string // full Go type expression (e.g., "*string", "[]string", "*int")
 	Required bool   // true if non-pointer type
 	MCPType  string // "String", "Number", "Boolean", "Array"
+	IsComplexType bool // true if the type contains inline structs, maps, etc.
 }
 
 // InspectResult holds everything extracted from the generated Go files.
@@ -132,7 +133,7 @@ func collectTypes(file *ast.File, result *InspectResult) {
 			}
 		}
 	}
-	// Second pass: collect structs (needs aliases for MCP type resolution)
+	// Second pass: collect structs and named type redefinitions
 	for _, decl := range file.Decls {
 		gd, ok := decl.(*ast.GenDecl)
 		if !ok || gd.Tok != token.TYPE {
@@ -140,12 +141,19 @@ func collectTypes(file *ast.File, result *InspectResult) {
 		}
 		for _, spec := range gd.Specs {
 			ts := spec.(*ast.TypeSpec)
-			st, ok := ts.Type.(*ast.StructType)
-			if !ok {
-				continue
+			if ts.Assign != 0 {
+				continue // already handled in first pass
 			}
-			if _, exists := result.Structs[ts.Name.Name]; !exists {
-				result.Structs[ts.Name.Name] = extractFields(st, result.TypeAliases)
+			if st, ok := ts.Type.(*ast.StructType); ok {
+				if _, exists := result.Structs[ts.Name.Name]; !exists {
+					result.Structs[ts.Name.Name] = extractFields(st, result.TypeAliases)
+				}
+			} else if ident, ok := ts.Type.(*ast.Ident); ok {
+				// Named type definition: type FooJSONRequestBody FooJSONBody
+				// Treat like an alias for resolution purposes
+				if _, exists := result.TypeAliases[ts.Name.Name]; !exists {
+					result.TypeAliases[ts.Name.Name] = ident.Name
+				}
 			}
 		}
 	}
@@ -233,10 +241,11 @@ func extractFields(st *ast.StructType, aliases map[string]string) []FieldInfo {
 		}
 
 		fi := FieldInfo{
-			GoName:   f.Names[0].Name,
-			GoType:   typeExprString(f.Type),
-			Required: !isPointerType(f.Type),
-			MCPType:  goTypeToMCPType(f.Type, aliases),
+			GoName:        f.Names[0].Name,
+			GoType:        typeExprString(f.Type),
+			Required:      !isPointerType(f.Type),
+			MCPType:       goTypeToMCPType(f.Type, aliases),
+			IsComplexType: isComplexType(f.Type),
 		}
 
 		if f.Tag != nil {
@@ -267,6 +276,23 @@ func wireNameFromTag(tag string) string {
 func isPointerType(expr ast.Expr) bool {
 	_, ok := expr.(*ast.StarExpr)
 	return ok
+}
+
+// isComplexType returns true if the type expression contains inline structs,
+// maps, or other types that can't be converted with simple type assertions.
+func isComplexType(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case *ast.StarExpr:
+		return isComplexType(e.X)
+	case *ast.ArrayType:
+		return isComplexType(e.Elt)
+	case *ast.StructType:
+		return true
+	case *ast.MapType:
+		return true
+	default:
+		return false
+	}
 }
 
 func goTypeToMCPType(expr ast.Expr, aliases map[string]string) string {

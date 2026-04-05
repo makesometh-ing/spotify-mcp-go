@@ -16,7 +16,11 @@ var ReorderOrReplacePlaylistsItemsToolScopes = []string{"playlist-modify-public"
 var ReorderOrReplacePlaylistsItemsTool = mcp.NewTool("reorder-or-replace-playlists-items",
 	mcp.WithDescription("Update Playlist Items\n\n\nEither reorder or replace items in a playlist depending on the request's parameters.\nTo reorder items, include `range_start`, `insert_before`, `range_length` and `snapshot_id` in the request's body.\nTo replace items, include `uris` as either a query parameter or in the request's body.\nReplacing items in a playlist will overwrite its existing items. This operation can be used for replacing or clearing items in a playlist.\n<br/>\n**Note**: Replace and reorder are mutually exclusive operations which share the same endpoint, but have different parameters.\nThese operations can't be applied together in a single request.\n"),
 	mcp.WithString("playlist_id", mcp.Required()),
-	mcp.WithString("uris"),
+	mcp.WithNumber("insert_before", mcp.Description("The position where the items should be inserted.<br/>To reorder the items to the end of the playlist, simply set _insert_before_ to the position after the last item.<br/>Examples:<br/>To reorder the first item to the last position in a playlist with 10 items, set _range_start_ to 0, and _insert_before_ to 10.<br/>To reorder the last item in a playlist with 10 items to the start of the playlist, set _range_start_ to 9, and _insert_before_ to 0.\n")),
+	mcp.WithNumber("range_length", mcp.Description("The amount of items to be reordered. Defaults to 1 if not set.<br/>The range of items to be reordered begins from the _range_start_ position, and includes the _range_length_ subsequent items.<br/>Example:<br/>To move the items at index 9-10 to the start of the playlist, _range_start_ is set to 9, and _range_length_ is set to 2.\n")),
+	mcp.WithNumber("range_start", mcp.Description("The position of the first item to be reordered.\n")),
+	mcp.WithString("snapshot_id", mcp.Description("The playlist's snapshot ID against which you want to make the changes.\n")),
+	mcp.WithArray("uris"),
 )
 
 // NewReorderOrReplacePlaylistsItemsHandler creates a handler for the reorder-or-replace-playlists-items tool.
@@ -26,10 +30,26 @@ func NewReorderOrReplacePlaylistsItemsHandler(client *spotify.ClientWithResponse
 		_ = args
 		playlistId, _ := args["playlist_id"].(string)
 		params := &spotify.ReorderOrReplacePlaylistsItemsParams{}
-		if v, ok := args["uris"].(string); ok && v != "" {
-			params.Uris = &v
-		}
 		var body spotify.ReorderOrReplacePlaylistsItemsJSONRequestBody
+		if v, ok := args["insert_before"]; ok {
+			n := toInt(v)
+			body.InsertBefore = &n
+		}
+		if v, ok := args["range_length"]; ok {
+			n := toInt(v)
+			body.RangeLength = &n
+		}
+		if v, ok := args["range_start"]; ok {
+			n := toInt(v)
+			body.RangeStart = &n
+		}
+		if v, ok := args["snapshot_id"].(string); ok && v != "" {
+			body.SnapshotId = &v
+		}
+		if v, ok := args["uris"]; ok {
+			sl := toStringSlice(v)
+			body.Uris = &sl
+		}
 		resp, err := client.ReorderOrReplacePlaylistsItemsWithResponse(ctx, playlistId, params, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

@@ -38,13 +38,14 @@ type ToolPathParam struct {
 
 // ToolParamData represents a query or body parameter.
 type ToolParamData struct {
-	WireName    string // e.g., "market", "uris"
-	GoFieldName string // e.g., "Market", "Uris"
-	GoType      string // e.g., "*string", "[]string"
-	MCPType     string // "String", "Number", "Boolean", "Array"
-	Required    bool
-	Description string
-	IsArray     bool // convenience: MCPType == "Array"
+	WireName      string // e.g., "market", "uris"
+	GoFieldName   string // e.g., "Market", "Uris"
+	GoType        string // e.g., "*string", "[]string"
+	MCPType       string // "String", "Number", "Boolean", "Array"
+	Required      bool
+	Description   string
+	IsArray       bool // convenience: MCPType == "Array"
+	IsComplexType bool // true for inline structs, maps, etc. (needs JSON roundtrip)
 }
 
 // MergeToolData joins AST inspection results with metadata to produce
@@ -102,13 +103,14 @@ func MergeToolData(inspect *InspectResult, meta *MetadataResult) []ToolData {
 				for _, f := range bodyFields {
 					bodyWireNames[f.WireName] = true
 					td.BodyParams = append(td.BodyParams, ToolParamData{
-						WireName:    f.WireName,
-						GoFieldName: f.GoName,
-						GoType:      f.GoType,
-						MCPType:     f.MCPType,
-						Required:    f.Required,
-						Description: opMeta.BodyDescs[f.WireName],
-						IsArray:     f.MCPType == "Array",
+						WireName:      f.WireName,
+						GoFieldName:   f.GoName,
+						GoType:        f.GoType,
+						MCPType:       f.MCPType,
+						Required:      f.Required,
+						Description:   opMeta.BodyDescs[f.WireName],
+						IsArray:       f.MCPType == "Array",
+						IsComplexType: f.IsComplexType,
 					})
 				}
 			}

@@ -103,6 +103,7 @@ var templateFuncs = template.FuncMap{
 	"queryAssign":    queryAssign,
 	"bodyAssign":     bodyAssign,
 	"needsStrings":   needsStrings,
+	"needsJSON":      needsJSON,
 }
 
 // pathArgExpr returns the Go expression for passing a path param to the client method.
@@ -117,6 +118,16 @@ func pathArgExpr(pp ToolPathParam) string {
 // needsStrings returns true if any non-JSON body tool needs "strings" import
 func needsStrings(td ToolData) bool {
 	return td.IsNonJSONBody
+}
+
+// needsJSON returns true if any body param has a complex type requiring JSON roundtrip
+func needsJSON(td ToolData) bool {
+	for _, bp := range td.BodyParams {
+		if bp.IsComplexType {
+			return true
+		}
+	}
+	return false
 }
 
 // queryAssign generates the Go code to assign a query param from MCP args.
@@ -176,6 +187,12 @@ func queryAssignOptional(p ToolParamData, toolCamelName string) string {
 
 // bodyAssign generates the Go code to assign a body field from MCP args.
 func bodyAssign(p ToolParamData) string {
+	// Complex types (inline structs, maps) need JSON roundtrip for the field
+	if p.IsComplexType {
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\traw, _ := json.Marshal(v)\n\t\t\t_ = json.Unmarshal(raw, &body.%s)\n\t\t}",
+			p.WireName, p.GoFieldName)
+	}
+
 	if p.IsArray {
 		if isPointerGoType(p.GoType) {
 			return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tsl := toStringSlice(v)\n\t\t\tbody.%s = &sl\n\t\t}",
@@ -336,6 +353,9 @@ package {{.PackageName}}
 
 import (
 	"context"
+{{- if needsJSON .Tool}}
+	"encoding/json"
+{{- end}}
 	"fmt"
 {{- if needsStrings .Tool}}
 	"strings"

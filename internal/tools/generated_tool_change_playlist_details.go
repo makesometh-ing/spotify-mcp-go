@@ -16,6 +16,10 @@ var ChangePlaylistDetailsToolScopes = []string{"playlist-modify-public", "playli
 var ChangePlaylistDetailsTool = mcp.NewTool("change-playlist-details",
 	mcp.WithDescription("Change Playlist Details\n\n\nChange a playlist's name and public/private state. (The user must, of\ncourse, own the playlist.)\n"),
 	mcp.WithString("playlist_id", mcp.Required()),
+	mcp.WithBoolean("collaborative", mcp.Description("If `true`, the playlist will become collaborative and other users will be able to modify the playlist in their Spotify client. <br/>\n_**Note**: You can only set `collaborative` to `true` on non-public playlists._\n")),
+	mcp.WithString("description", mcp.Description("Value for playlist description as displayed in Spotify Clients and in the Web API.\n")),
+	mcp.WithString("name", mcp.Description("The new name for the playlist, for example `\"My New Playlist Title\"`\n")),
+	mcp.WithBoolean("public", mcp.Description("The playlist's public/private status (if it should be added to the user's profile or not): `true` the playlist will be public, `false` the playlist will be private, `null` the playlist status is not relevant. For more about public/private status, see [Working with Playlists](/documentation/web-api/concepts/playlists)\n")),
 )
 
 // NewChangePlaylistDetailsHandler creates a handler for the change-playlist-details tool.
@@ -25,6 +29,20 @@ func NewChangePlaylistDetailsHandler(client *spotify.ClientWithResponses) func(c
 		_ = args
 		playlistId, _ := args["playlist_id"].(string)
 		var body spotify.ChangePlaylistDetailsJSONRequestBody
+		if v, ok := args["collaborative"]; ok {
+			b := toBool(v)
+			body.Collaborative = &b
+		}
+		if v, ok := args["description"].(string); ok && v != "" {
+			body.Description = &v
+		}
+		if v, ok := args["name"].(string); ok && v != "" {
+			body.Name = &v
+		}
+		if v, ok := args["public"]; ok {
+			b := toBool(v)
+			body.Public = &b
+		}
 		resp, err := client.ChangePlaylistDetailsWithResponse(ctx, playlistId, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

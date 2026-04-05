@@ -4,6 +4,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
@@ -16,6 +17,8 @@ var RemoveItemsPlaylistToolScopes = []string{"playlist-modify-public", "playlist
 var RemoveItemsPlaylistTool = mcp.NewTool("remove-items-playlist",
 	mcp.WithDescription("Remove Playlist Items\n\n\nRemove one or more items from a user's playlist.\n"),
 	mcp.WithString("playlist_id", mcp.Required()),
+	mcp.WithArray("items", mcp.Required(), mcp.Description("An array of objects containing [Spotify URIs](/documentation/web-api/concepts/spotify-uris-ids) of the tracks or episodes to remove.\nFor example: `{ \"items\": [{ \"uri\": \"spotify:track:4iV5W9uYEdYUVa79Axb7Rh\" },{ \"uri\": \"spotify:track:1301WleyT98MSxVHPZCA6M\" }] }`. A maximum of 100 objects can be sent at once.\n")),
+	mcp.WithString("snapshot_id", mcp.Description("The playlist's snapshot ID against which you want to make the changes.\nThe API will validate that the specified items exist and in the specified positions and make the changes,\neven if more recent changes have been made to the playlist.\n")),
 )
 
 // NewRemoveItemsPlaylistHandler creates a handler for the remove-items-playlist tool.
@@ -25,6 +28,13 @@ func NewRemoveItemsPlaylistHandler(client *spotify.ClientWithResponses) func(con
 		_ = args
 		playlistId, _ := args["playlist_id"].(string)
 		var body spotify.RemoveItemsPlaylistJSONRequestBody
+		if v, ok := args["items"]; ok {
+			raw, _ := json.Marshal(v)
+			_ = json.Unmarshal(raw, &body.Items)
+		}
+		if v, ok := args["snapshot_id"].(string); ok && v != "" {
+			body.SnapshotId = &v
+		}
 		resp, err := client.RemoveItemsPlaylistWithResponse(ctx, playlistId, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil

@@ -15,6 +15,8 @@ var TransferAUsersPlaybackToolScopes = []string{"user-modify-playback-state"}
 
 var TransferAUsersPlaybackTool = mcp.NewTool("transfer-a-users-playback",
 	mcp.WithDescription("Transfer Playback\n\n\nTransfer playback to a new device and optionally begin playback. This API only works for users who have Spotify Premium. The order of execution is not guaranteed when you use this API with other Player API endpoints.\n"),
+	mcp.WithArray("device_ids", mcp.Required(), mcp.Description("A JSON array containing the ID of the device on which playback should be started/transferred.<br/>For example:`{device_ids:[\"74ASZWbe4lXaubB36ztrGX\"]}`<br/>_**Note**: Although an array is accepted, only a single device_id is currently supported. Supplying more than one will return `400 Bad Request`_\n")),
+	mcp.WithBoolean("play", mcp.Description("**true**: ensure playback happens on new device.<br/>**false** or not provided: keep the current playback state.\n")),
 )
 
 // NewTransferAUsersPlaybackHandler creates a handler for the transfer-a-users-playback tool.
@@ -23,6 +25,13 @@ func NewTransferAUsersPlaybackHandler(client *spotify.ClientWithResponses) func(
 		args := req.GetArguments()
 		_ = args
 		var body spotify.TransferAUsersPlaybackJSONRequestBody
+		if v, ok := args["device_ids"]; ok {
+			body.DeviceIds = toStringSlice(v)
+		}
+		if v, ok := args["play"]; ok {
+			b := toBool(v)
+			body.Play = &b
+		}
 		resp, err := client.TransferAUsersPlaybackWithResponse(ctx, body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
