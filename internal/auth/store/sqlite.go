@@ -154,7 +154,7 @@ func (s *SQLiteTokenStore) LoadAll(_ context.Context) (map[string]*TokenRecord, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	records := make(map[string]*TokenRecord)
 	for rows.Next() {
