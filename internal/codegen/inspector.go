@@ -117,6 +117,7 @@ func Inspect(clientSrc, typesSrc []byte) (*InspectResult, error) {
 }
 
 func collectTypes(file *ast.File, result *InspectResult) {
+	// First pass: collect all type aliases
 	for _, decl := range file.Decls {
 		gd, ok := decl.(*ast.GenDecl)
 		if !ok || gd.Tok != token.TYPE {
@@ -128,14 +129,23 @@ func collectTypes(file *ast.File, result *InspectResult) {
 				if _, exists := result.TypeAliases[ts.Name.Name]; !exists {
 					result.TypeAliases[ts.Name.Name] = typeExprString(ts.Type)
 				}
-				continue
 			}
+		}
+	}
+	// Second pass: collect structs (needs aliases for MCP type resolution)
+	for _, decl := range file.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts := spec.(*ast.TypeSpec)
 			st, ok := ts.Type.(*ast.StructType)
 			if !ok {
 				continue
 			}
 			if _, exists := result.Structs[ts.Name.Name]; !exists {
-				result.Structs[ts.Name.Name] = extractFields(st)
+				result.Structs[ts.Name.Name] = extractFields(st, result.TypeAliases)
 			}
 		}
 	}
@@ -212,7 +222,7 @@ func isClientWithResponses(recv *ast.FieldList) bool {
 	return ident.Name == "ClientWithResponses"
 }
 
-func extractFields(st *ast.StructType) []FieldInfo {
+func extractFields(st *ast.StructType, aliases map[string]string) []FieldInfo {
 	var fields []FieldInfo
 	for _, f := range st.Fields.List {
 		if len(f.Names) == 0 {
@@ -226,7 +236,7 @@ func extractFields(st *ast.StructType) []FieldInfo {
 			GoName:   f.Names[0].Name,
 			GoType:   typeExprString(f.Type),
 			Required: !isPointerType(f.Type),
-			MCPType:  goTypeToMCPType(f.Type),
+			MCPType:  goTypeToMCPType(f.Type, aliases),
 		}
 
 		if f.Tag != nil {
@@ -259,10 +269,10 @@ func isPointerType(expr ast.Expr) bool {
 	return ok
 }
 
-func goTypeToMCPType(expr ast.Expr) string {
+func goTypeToMCPType(expr ast.Expr, aliases map[string]string) string {
 	switch e := expr.(type) {
 	case *ast.StarExpr:
-		return goTypeToMCPType(e.X)
+		return goTypeToMCPType(e.X, aliases)
 	case *ast.ArrayType:
 		return "Array"
 	case *ast.Ident:
@@ -271,7 +281,18 @@ func goTypeToMCPType(expr ast.Expr) string {
 			return "Number"
 		case "bool":
 			return "Boolean"
+		case "string":
+			return "String"
 		default:
+			// Resolve type alias: QueryLimit = int, QueryOffset = int, etc.
+			if target, ok := aliases[e.Name]; ok {
+				switch target {
+				case "int", "int32", "int64", "float32", "float64":
+					return "Number"
+				case "bool":
+					return "Boolean"
+				}
+			}
 			return "String"
 		}
 	case *ast.MapType:

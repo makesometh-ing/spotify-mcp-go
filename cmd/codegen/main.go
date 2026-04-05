@@ -73,7 +73,13 @@ func run() error {
 		return fmt.Errorf("reading spec: %w", err)
 	}
 
-	// Step 2: Generate Spotify client (oapi-codegen)
+	// Step 2: Sanitize spec (fixes Swagger 2.0 required:bool quirk)
+	sanitizedSpec, err := codegen.SanitizeSpec(specData)
+	if err != nil {
+		return fmt.Errorf("sanitizing spec: %w", err)
+	}
+
+	// Step 3: Generate Spotify client (oapi-codegen)
 	fmt.Println("Generating Spotify client...")
 	if err := codegen.GenerateFromSpec(specData, oapiConfig); err != nil {
 		return fmt.Errorf("generating client: %w", err)
@@ -81,7 +87,7 @@ func run() error {
 	fmt.Printf("  %s\n", oapiConfig.ClientOutput)
 	fmt.Printf("  %s\n", oapiConfig.TypesOutput)
 
-	// Step 3: AST inspect generated files
+	// Step 4: AST inspect generated files
 	fmt.Println("Inspecting generated client types...")
 	clientSrc, err := os.ReadFile(oapiConfig.ClientOutput)
 	if err != nil {
@@ -97,9 +103,9 @@ func run() error {
 	}
 	fmt.Printf("  %d methods, %d structs\n", len(inspectResult.Methods), len(inspectResult.Structs))
 
-	// Step 4: Extract metadata from spec
+	// Step 5: Extract metadata from sanitized spec
 	fmt.Println("Extracting metadata from spec...")
-	metaResult, err := codegen.ExtractMetadata(specData)
+	metaResult, err := codegen.ExtractMetadata(sanitizedSpec)
 	if err != nil {
 		return fmt.Errorf("extracting metadata: %w", err)
 	}
