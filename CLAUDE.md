@@ -78,7 +78,7 @@ Linear ID is mandatory. Every commit ties back to a Linear issue. If no issue ex
 
 ## Versioning
 
-CalVer `YYYY.MM.PATCH` (e.g., `2026.04.0`). Tag releases with `git tag 2026.04.0 && git push --tags`. The release workflow triggers on tag push.
+CalVer `YYYY.MM.PATCH` (e.g., `2026.04.0`). Tags use a `v` prefix: `git tag v2026.04.0 && git push --tags`. The release workflow triggers on `v*` tag push.
 
 ## Build Commands
 
