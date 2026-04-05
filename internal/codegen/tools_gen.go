@@ -6,54 +6,80 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"text/template"
 )
 
-// GenerateToolsFile generates and writes the MCP tools Go source file.
-func GenerateToolsFile(ops []Operation, packageName, serverURL, outputPath string) error {
-	code, err := GenerateTools(ops, packageName, serverURL)
+// GenerateToolFiles generates per-endpoint tool files and an aggregator file.
+func GenerateToolFiles(tools []ToolData, packageName, serverURL, outputDir string) error {
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("creating output dir: %w", err)
+	}
+
+	// Remove old generated files before writing new ones
+	if err := removeOldGeneratedFiles(outputDir); err != nil {
+		return fmt.Errorf("removing old generated files: %w", err)
+	}
+
+	for _, td := range tools {
+		code, err := renderToolFile(td, packageName)
+		if err != nil {
+			return fmt.Errorf("rendering %s: %w", td.OperationID, err)
+		}
+		filename := "generated_tool_" + snakeCase(td.OperationID) + ".go"
+		if err := os.WriteFile(filepath.Join(outputDir, filename), []byte(code), 0644); err != nil {
+			return fmt.Errorf("writing %s: %w", filename, err)
+		}
+	}
+
+	agg, err := renderAggregatorFile(tools, packageName, serverURL)
+	if err != nil {
+		return fmt.Errorf("rendering aggregator: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "generated_tools_all.go"), []byte(agg), 0644); err != nil {
+		return fmt.Errorf("writing aggregator: %w", err)
+	}
+
+	return nil
+}
+
+func removeOldGeneratedFiles(dir string) error {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(outputPath, []byte(code), 0644)
-}
-
-// GenerateTools generates MCP tool definitions Go source code from parsed operations.
-// Operations are sorted by operationID for deterministic output.
-// If serverURL is non-empty, a const ServerURL is emitted in the generated code.
-func GenerateTools(ops []Operation, packageName, serverURL string) (string, error) {
-	sorted := make([]Operation, len(ops))
-	copy(sorted, ops)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].OperationID < sorted[j].OperationID
-	})
-
-	data := toolsTemplateData{
-		PackageName: packageName,
-		ServerURL:   serverURL,
-	}
-	for _, op := range sorted {
-		td := newToolData(op)
-		data.Tools = append(data.Tools, td)
-		for _, p := range td.QueryParams {
-			if p.MCPType == "Array" {
-				data.HasArrayParams = true
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, "generated_tool") && strings.HasSuffix(name, ".go") {
+			if err := os.Remove(filepath.Join(dir, name)); err != nil {
+				return err
 			}
 		}
-		if td.HasJSONBody {
-			data.HasJSONBody = true
-		}
 	}
+	return nil
+}
 
-	tmpl, err := template.New("tools").Funcs(template.FuncMap{
-		"quote": func(s string) string { return fmt.Sprintf("%q", s) },
-	}).Parse(toolsTmpl)
+func renderToolFile(td ToolData, packageName string) (string, error) {
+	data := struct {
+		PackageName string
+		Tool        ToolData
+	}{packageName, td}
+
+	return renderTemplate("tool", toolFileTmpl, data)
+}
+
+func renderAggregatorFile(tools []ToolData, packageName, serverURL string) (string, error) {
+	data := struct {
+		PackageName string
+		ServerURL   string
+		Tools       []ToolData
+	}{packageName, serverURL, tools}
+
+	return renderTemplate("aggregator", aggregatorTmpl, data)
+}
+
+func renderTemplate(name, tmplStr string, data interface{}) (string, error) {
+	tmpl, err := template.New(name).Funcs(templateFuncs).Parse(tmplStr)
 	if err != nil {
 		return "", fmt.Errorf("parsing template: %w", err)
 	}
@@ -65,96 +91,188 @@ func GenerateTools(ops []Operation, packageName, serverURL string) (string, erro
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
-		return "", fmt.Errorf("formatting generated code: %w\n%s", err, buf.String())
+		return "", fmt.Errorf("formatting: %w\n%s", err, buf.String())
 	}
 	return string(formatted), nil
 }
 
-type toolsTemplateData struct {
-	PackageName    string
-	ServerURL      string
-	Tools          []toolData
-	HasArrayParams bool
-	HasJSONBody    bool
+var templateFuncs = template.FuncMap{
+	"quote":          func(s string) string { return fmt.Sprintf("%q", s) },
+	"isPointerType":  func(goType string) bool { return strings.HasPrefix(goType, "*") },
+	"pathArgExpr":    pathArgExpr,
+	"queryAssign":    queryAssign,
+	"bodyAssign":     bodyAssign,
+	"needsStrings":   needsStrings,
+	"needsJSON":      needsJSON,
 }
 
-type toolData struct {
-	OperationID string
-	CamelName   string
-	VarName     string
-	HandlerName string
-	Description string
-	Scopes      []string
-	Method      string
-	PathPattern string
-	HasBody     bool
-	HasJSONBody bool // true if body is application/json (use JSONRequestBody type)
-	BodyCT      string
-	Params      []toolParamData
-	PathParams  []toolParamData
-	QueryParams []toolParamData
-	BodyParams  []toolParamData
+// pathArgExpr returns the Go expression for passing a path param to the client method.
+// If the type is not "string" and not a Path* alias (which are = string), we cast.
+func pathArgExpr(pp ToolPathParam) string {
+	if pp.GoType == "string" || strings.HasPrefix(pp.GoType, "Path") {
+		return pp.GoVarName
+	}
+	return fmt.Sprintf("spotify.%s(%s)", pp.GoType, pp.GoVarName)
 }
 
-type toolParamData struct {
-	Name        string
-	GoName      string // camelCase for local vars (e.g., "playlist_id" -> "playlistId")
-	PascalName  string // PascalCase for struct fields (e.g., "playlist_id" -> "PlaylistId")
-	MCPType     string
-	Required    bool
-	Description string
-	HasEnum     bool
+// needsStrings returns true if any non-JSON body tool needs "strings" import
+func needsStrings(td ToolData) bool {
+	return td.IsNonJSONBody
 }
 
-func newToolData(op Operation) toolData {
-	camel := kebabToCamel(op.OperationID)
-	td := toolData{
-		OperationID: op.OperationID,
-		CamelName:   camel,
-		VarName:     camel + "Tool",
-		HandlerName: "New" + camel + "Handler",
-		Description: toolDescription(op.Summary, op.Description),
-		Scopes:      op.Scopes,
-		Method:      op.Method,
-		PathPattern: op.Path,
-		HasBody:     op.RequestBodyRef != "",
-		HasJSONBody: op.RequestBodyRef != "" && (op.BodyContentType == "application/json" || op.BodyContentType == ""),
-		BodyCT:      op.BodyContentType,
-	}
-
-	for _, p := range op.Parameters {
-		pd := toolParamData{
-			Name:        p.Name,
-			GoName:      snakeToCamel(p.Name),
-			PascalName:  snakeToPascal(p.Name),
-			MCPType:     mcpType(p.Type),
-			Required:    p.Required,
-			Description: p.Description,
-			HasEnum:     p.HasEnum,
-		}
-		td.Params = append(td.Params, pd)
-		switch p.In {
-		case "path":
-			td.PathParams = append(td.PathParams, pd)
-		case "query":
-			td.QueryParams = append(td.QueryParams, pd)
+// needsJSON returns true if any body param has a complex type requiring JSON roundtrip
+func needsJSON(td ToolData) bool {
+	for _, bp := range td.BodyParams {
+		if bp.IsComplexType {
+			return true
 		}
 	}
+	return false
+}
 
-	for _, f := range op.BodyFields {
-		pd := toolParamData{
-			Name:        f.Name,
-			GoName:      snakeToCamel(f.Name),
-			PascalName:  snakeToPascal(f.Name),
-			MCPType:     mcpType(f.Type),
-			Required:    f.Required,
-			Description: f.Description,
+// queryAssign generates the Go code to assign a query param from MCP args.
+func queryAssign(p ToolParamData, toolCamelName string) string {
+	if p.Required {
+		return queryAssignRequired(p, toolCamelName)
+	}
+	return queryAssignOptional(p, toolCamelName)
+}
+
+func queryAssignRequired(p ToolParamData, toolCamelName string) string {
+	switch p.MCPType {
+	case "Number":
+		return fmt.Sprintf("params.%s = toInt(args[%q])", p.GoFieldName, p.WireName)
+	case "Boolean":
+		return fmt.Sprintf("params.%s = toBool(args[%q])", p.GoFieldName, p.WireName)
+	case "Array":
+		elemType := sliceElemType(p.GoType)
+		if elemType != "string" {
+			return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tparams.%s = toTypedSlice[spotify.%s](v)\n\t\t}",
+				p.WireName, p.GoFieldName, elemType)
 		}
-		td.BodyParams = append(td.BodyParams, pd)
-		td.Params = append(td.Params, pd)
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tparams.%s = toStringSlice(v)\n\t\t}",
+			p.WireName, p.GoFieldName)
+	default:
+		// Check if it's an enum type (not plain string/QueryMarket etc.)
+		baseType := strings.TrimPrefix(p.GoType, "*")
+		if isEnumType(baseType, toolCamelName) {
+			return fmt.Sprintf("params.%s = spotify.%s(args[%q].(string))",
+				p.GoFieldName, baseType, p.WireName)
+		}
+		return fmt.Sprintf("params.%s = args[%q].(string)", p.GoFieldName, p.WireName)
+	}
+}
+
+func queryAssignOptional(p ToolParamData, toolCamelName string) string {
+	switch p.MCPType {
+	case "Number":
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tn := toInt(v)\n\t\t\tparams.%s = &n\n\t\t}",
+			p.WireName, p.GoFieldName)
+	case "Boolean":
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tb := toBool(v)\n\t\t\tparams.%s = &b\n\t\t}",
+			p.WireName, p.GoFieldName)
+	case "Array":
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tsl := toStringSlice(v)\n\t\t\tparams.%s = sl\n\t\t}",
+			p.WireName, p.GoFieldName)
+	default:
+		baseType := strings.TrimPrefix(p.GoType, "*")
+		if isEnumType(baseType, toolCamelName) {
+			return fmt.Sprintf("if v, ok := args[%q].(string); ok && v != \"\" {\n\t\t\tev := spotify.%s(v)\n\t\t\tparams.%s = &ev\n\t\t}",
+				p.WireName, baseType, p.GoFieldName)
+		}
+		return fmt.Sprintf("if v, ok := args[%q].(string); ok && v != \"\" {\n\t\t\tparams.%s = &v\n\t\t}",
+			p.WireName, p.GoFieldName)
+	}
+}
+
+// bodyAssign generates the Go code to assign a body field from MCP args.
+func bodyAssign(p ToolParamData) string {
+	// Complex types (inline structs, maps) need JSON roundtrip for the field
+	if p.IsComplexType {
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\traw, _ := json.Marshal(v)\n\t\t\t_ = json.Unmarshal(raw, &body.%s)\n\t\t}",
+			p.WireName, p.GoFieldName)
 	}
 
-	return td
+	if p.IsArray {
+		if isPointerGoType(p.GoType) {
+			return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tsl := toStringSlice(v)\n\t\t\tbody.%s = &sl\n\t\t}",
+				p.WireName, p.GoFieldName)
+		}
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tbody.%s = toStringSlice(v)\n\t\t}",
+			p.WireName, p.GoFieldName)
+	}
+
+	if p.Required {
+		return bodyAssignRequired(p)
+	}
+	return bodyAssignOptional(p)
+}
+
+func bodyAssignRequired(p ToolParamData) string {
+	switch p.MCPType {
+	case "Number":
+		return fmt.Sprintf("body.%s = toInt(args[%q])", p.GoFieldName, p.WireName)
+	case "Boolean":
+		return fmt.Sprintf("body.%s = toBool(args[%q])", p.GoFieldName, p.WireName)
+	case "Object":
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tif m, ok := v.(*map[string]interface{}); ok {\n\t\t\t\tbody.%s = m\n\t\t\t}\n\t\t}",
+			p.WireName, p.GoFieldName)
+	default:
+		return fmt.Sprintf("if v, ok := args[%q].(string); ok {\n\t\t\tbody.%s = v\n\t\t}",
+			p.WireName, p.GoFieldName)
+	}
+}
+
+func bodyAssignOptional(p ToolParamData) string {
+	switch p.MCPType {
+	case "Number":
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tn := toInt(v)\n\t\t\tbody.%s = &n\n\t\t}",
+			p.WireName, p.GoFieldName)
+	case "Boolean":
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tb := toBool(v)\n\t\t\tbody.%s = &b\n\t\t}",
+			p.WireName, p.GoFieldName)
+	case "Object":
+		return fmt.Sprintf("if v, ok := args[%q]; ok {\n\t\t\tif m, ok := v.(*map[string]interface{}); ok {\n\t\t\t\tbody.%s = m\n\t\t\t}\n\t\t}",
+			p.WireName, p.GoFieldName)
+	default:
+		return fmt.Sprintf("if v, ok := args[%q].(string); ok && v != \"\" {\n\t\t\tbody.%s = &v\n\t\t}",
+			p.WireName, p.GoFieldName)
+	}
+}
+
+func isPointerGoType(goType string) bool {
+	return strings.HasPrefix(goType, "*")
+}
+
+// isEnumType checks if a Go type looks like an oapi-codegen enum type.
+// Enum types follow the pattern: <ToolName>Params<FieldName> (e.g., SearchParamsType).
+// Plain string, QueryMarket, etc. are NOT enum types.
+func isEnumType(typeName, toolCamelName string) bool {
+	if typeName == "string" || typeName == "" {
+		return false
+	}
+	// Query* types are type aliases to string, not enums
+	if strings.HasPrefix(typeName, "Query") {
+		return false
+	}
+	// Path* types are type aliases to string, not enums
+	if strings.HasPrefix(typeName, "Path") {
+		return false
+	}
+	return true
+}
+
+// sliceElemType extracts the element type from a Go slice type.
+// "[]string" -> "string", "*[]string" -> "string", "[]FooType" -> "FooType"
+func sliceElemType(goType string) string {
+	t := strings.TrimPrefix(goType, "*")
+	t = strings.TrimPrefix(t, "[]")
+	return t
+}
+
+// snakeCase converts kebab-case to snake_case for filenames.
+func snakeCase(s string) string {
+	return strings.ReplaceAll(s, "-", "_")
 }
 
 // goReserved is the set of Go keywords and predeclared identifiers that can't
@@ -216,132 +334,60 @@ func toolDescription(summary, description string) string {
 	return description
 }
 
-func mcpType(openAPIType string) string {
-	switch openAPIType {
-	case "integer", "number":
-		return "Number"
-	case "boolean":
-		return "Boolean"
-	case "array":
-		return "Array"
-	default:
-		return "String"
-	}
-}
 
-const toolsTmpl = `// Code generated by cmd/codegen; DO NOT EDIT.
+const toolFileTmpl = `// Code generated by cmd/codegen; DO NOT EDIT.
 
 package {{.PackageName}}
 
 import (
 	"context"
-{{- if .HasJSONBody}}
+{{- if needsJSON .Tool}}
 	"encoding/json"
 {{- end}}
 	"fmt"
-	"sort"
-{{- if .HasArrayParams}}
+{{- if needsStrings .Tool}}
 	"strings"
 {{- end}}
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/makesometh-ing/spotify-mcp-go/internal/spotify"
 )
-{{- if .ServerURL}}
 
-// ServerURL is the Spotify API server URL extracted from the OpenAPI spec's servers block.
-const ServerURL = {{quote .ServerURL}}
-{{- end}}
+// {{.Tool.VarName}}Scopes lists the OAuth scopes required by the {{.Tool.OperationID}} tool.
+var {{.Tool.VarName}}Scopes = []string{ {{- range .Tool.Scopes}}{{quote .}}, {{end -}} }
 
-{{- range .Tools}}
-
-// {{.VarName}}Scopes lists the OAuth scopes required by the {{.OperationID}} tool.
-var {{.VarName}}Scopes = []string{ {{- range .Scopes}}{{quote .}}, {{end -}} }
-
-var {{.VarName}} = mcp.NewTool({{quote .OperationID}},
-	mcp.WithDescription({{quote .Description}}),
-{{- range .Params}}
-	mcp.With{{.MCPType}}({{quote .Name}}{{if .Required}}, mcp.Required(){{end}}{{if .Description}}, mcp.Description({{quote .Description}}){{end}}),
+var {{.Tool.VarName}} = mcp.NewTool({{quote .Tool.OperationID}},
+	mcp.WithDescription({{quote .Tool.Description}}),
+{{- range .Tool.AllParams}}
+	mcp.With{{.MCPType}}({{quote .WireName}}{{if .Required}}, mcp.Required(){{end}}{{if .Description}}, mcp.Description({{quote .Description}}){{end}}),
 {{- end}}
 )
 
-// {{.HandlerName}} creates a handler for the {{.OperationID}} tool.
-func {{.HandlerName}}(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// {{.Tool.HandlerName}} creates a handler for the {{.Tool.OperationID}} tool.
+func {{.Tool.HandlerName}}(client *spotify.ClientWithResponses) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-{{- $tool := .}}
-{{- range .PathParams}}
-{{- if .HasEnum}}
-		{{.GoName}} := spotify.{{$tool.CamelName}}Params{{.PascalName}}(req.GetString({{quote .Name}}, ""))
-{{- else}}
-		{{.GoName}} := req.GetString({{quote .Name}}, "")
+		args := req.GetArguments()
+		_ = args
+{{- range .Tool.PathParams}}
+		{{.GoVarName}}, _ := args[{{quote .WireName}}].(string)
+{{- end}}
+{{- if .Tool.ParamsTypeName}}
+		params := &spotify.{{.Tool.ParamsTypeName}}{}
+{{- range .Tool.QueryParams}}
+		{{queryAssign . $.Tool.CamelName}}
 {{- end}}
 {{- end}}
-{{- if .QueryParams}}
-		params := &spotify.{{$tool.CamelName}}Params{}
-{{- range .QueryParams}}
-{{- if and .HasEnum (eq .MCPType "Array")}}
-		if arr, ok := req.GetArguments()[{{quote .Name}}].([]interface{}); ok {
-			for _, item := range arr {
-				if s, ok := item.(string); ok && s != "" {
-					params.{{.PascalName}} = append(params.{{.PascalName}}, spotify.{{$tool.CamelName}}Params{{.PascalName}}(s))
-				}
-			}
-		} else if raw := req.GetString({{quote .Name}}, ""); raw != "" {
-			for _, s := range strings.Split(raw, ",") {
-				if t := strings.TrimSpace(s); t != "" {
-					params.{{.PascalName}} = append(params.{{.PascalName}}, spotify.{{$tool.CamelName}}Params{{.PascalName}}(t))
-				}
-			}
-		}
-{{- else if and .Required .HasEnum}}
-		params.{{.PascalName}} = spotify.{{$tool.CamelName}}Params{{.PascalName}}(req.GetString({{quote .Name}}, ""))
-{{- else if and .Required (eq .MCPType "Number")}}
-		params.{{.PascalName}} = req.GetInt({{quote .Name}}, 0)
-{{- else if and .Required (eq .MCPType "Boolean")}}
-		params.{{.PascalName}} = req.GetString({{quote .Name}}, "") == "true"
-{{- else if .Required}}
-		params.{{.PascalName}} = req.GetString({{quote .Name}}, "")
-{{- else if eq .MCPType "Number"}}
-		if v := req.GetInt({{quote .Name}}, 0); v != 0 {
-			params.{{.PascalName}} = &v
-		}
-{{- else if .HasEnum}}
-		if v := req.GetString({{quote .Name}}, ""); v != "" {
-			ev := spotify.{{$tool.CamelName}}Params{{.PascalName}}(v)
-			params.{{.PascalName}} = &ev
-		}
-{{- else}}
-		if v := req.GetString({{quote .Name}}, ""); v != "" {
-			params.{{.PascalName}} = &v
-		}
+{{- if .Tool.HasJSONBody}}
+		var body spotify.{{.Tool.BodyTypeName}}
+{{- range .Tool.BodyParams}}
+		{{bodyAssign .}}
 {{- end}}
-{{- end}}
-{{- end}}
-{{- if .HasJSONBody}}
-		bodyArgs := make(map[string]interface{})
-		for k, v := range req.GetArguments() {
-			bodyArgs[k] = v
-		}
-{{- range .PathParams}}
-		delete(bodyArgs, {{quote .Name}})
-{{- end}}
-{{- range .QueryParams}}
-		delete(bodyArgs, {{quote .Name}})
-{{- end}}
-		bodyJSON, err := json.Marshal(bodyArgs)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("marshaling request body: %v", err)), nil
-		}
-		var body spotify.{{.CamelName}}JSONRequestBody
-		if err := json.Unmarshal(bodyJSON, &body); err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("unmarshaling request body: %v", err)), nil
-		}
 {{- end}}
 
-{{- if and .HasBody (not .HasJSONBody)}}
-		resp, err := client.{{.CamelName}}WithBodyWithResponse(ctx{{range .PathParams}}, {{.GoName}}{{end}}, {{quote .BodyCT}}, strings.NewReader(req.GetString("body", "")))
+{{- if .Tool.IsNonJSONBody}}
+		resp, err := client.{{.Tool.CamelName}}WithBodyWithResponse(ctx{{range .Tool.PathParams}}, {{pathArgExpr .}}{{end}}, {{quote .Tool.BodyContentType}}, strings.NewReader(req.GetString("body", "")))
 {{- else}}
-		resp, err := client.{{.CamelName}}WithResponse(ctx{{range .PathParams}}, {{.GoName}}{{end}}{{if .QueryParams}}, params{{end}}{{if .HasJSONBody}}, body{{end}})
+		resp, err := client.{{.Tool.CamelName}}WithResponse(ctx{{range .Tool.PathParams}}, {{pathArgExpr .}}{{end}}{{if .Tool.ParamsTypeName}}, params{{end}}{{if .Tool.HasJSONBody}}, body{{end}})
 {{- end}}
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -354,7 +400,22 @@ func {{.HandlerName}}(client *spotify.ClientWithResponses) func(context.Context,
 		return mcp.NewToolResultText(string(resp.Body)), nil
 	}
 }
-{{end}}
+`
+
+const aggregatorTmpl = `// Code generated by cmd/codegen; DO NOT EDIT.
+
+package {{.PackageName}}
+
+import (
+	"sort"
+
+	"github.com/mark3labs/mcp-go/mcp"
+)
+{{- if .ServerURL}}
+
+// ServerURL is the Spotify API server URL extracted from the OpenAPI spec's servers block.
+const ServerURL = {{quote .ServerURL}}
+{{- end}}
 
 // AllTools contains all generated MCP tool definitions.
 var AllTools = []mcp.Tool{
@@ -386,5 +447,62 @@ func AllScopes() []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+// Type conversion helpers for MCP args to Go types.
+
+func toStringSlice(v interface{}) []string {
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func toTypedSlice[T ~string](v interface{}) []T {
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]T, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			result = append(result, T(s))
+		}
+	}
+	return result
+}
+
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	default:
+		return 0
+	}
+}
+
+func toFloat(v interface{}) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	default:
+		return 0
+	}
+}
+
+func toBool(v interface{}) bool {
+	b, _ := v.(bool)
+	return b
 }
 `

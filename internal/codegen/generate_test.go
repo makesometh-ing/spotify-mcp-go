@@ -11,7 +11,7 @@ import (
 )
 
 func TestOapiCodegenGeneratesFiles(t *testing.T) {
-	fixture := loadFixture(t)
+	fixture := loadTestFixture(t, "spotify_fixture.yaml")
 	outDir := t.TempDir()
 
 	clientPath := filepath.Join(outDir, "generated_client.go")
@@ -33,7 +33,7 @@ func TestOapiCodegenGeneratesFiles(t *testing.T) {
 }
 
 func TestOapiCodegenClientHasMethodPerOperation(t *testing.T) {
-	fixture := loadFixture(t)
+	fixture := loadTestFixture(t, "spotify_fixture.yaml")
 	outDir := t.TempDir()
 
 	clientPath := filepath.Join(outDir, "generated_client.go")
@@ -59,7 +59,7 @@ func TestOapiCodegenClientHasMethodPerOperation(t *testing.T) {
 }
 
 func TestOapiCodegenTypesIncludeSchemas(t *testing.T) {
-	fixture := loadFixture(t)
+	fixture := loadTestFixture(t, "spotify_fixture.yaml")
 	outDir := t.TempDir()
 
 	clientPath := filepath.Join(outDir, "generated_client.go")
@@ -83,7 +83,7 @@ func TestOapiCodegenTypesIncludeSchemas(t *testing.T) {
 }
 
 func TestOapiCodegenExcludesDeprecated(t *testing.T) {
-	fixture := loadFixture(t)
+	fixture := loadTestFixture(t, "spotify_fixture.yaml")
 	outDir := t.TempDir()
 
 	clientPath := filepath.Join(outDir, "generated_client.go")
@@ -108,7 +108,7 @@ func TestOapiCodegenExcludesDeprecated(t *testing.T) {
 }
 
 func TestOapiCodegenDeterministic(t *testing.T) {
-	fixture := loadFixture(t)
+	fixture := loadTestFixture(t, "spotify_fixture.yaml")
 
 	generate := func() (string, string) {
 		outDir := t.TempDir()
@@ -139,7 +139,7 @@ func TestOapiCodegenDeterministic(t *testing.T) {
 }
 
 func TestOapiCodegenRespectsConfig(t *testing.T) {
-	fixture := loadFixture(t)
+	fixture := loadTestFixture(t, "spotify_fixture.yaml")
 	outDir := t.TempDir()
 
 	clientPath := filepath.Join(outDir, "generated_client.go")

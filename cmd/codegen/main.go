@@ -48,7 +48,7 @@ func run() error {
 	oapiConfig.ClientOutput = filepath.Join(projectRoot, oapiConfig.ClientOutput)
 	oapiConfig.TypesOutput = filepath.Join(projectRoot, oapiConfig.TypesOutput)
 
-	toolsOutput := filepath.Join(projectRoot, "internal", "tools", "generated_tools.go")
+	toolsDir := filepath.Join(projectRoot, "internal", "tools")
 
 	// Step 1: Fetch the spec
 	fmt.Printf("Fetching OpenAPI spec from %s...\n", specURL)
@@ -73,19 +73,13 @@ func run() error {
 		return fmt.Errorf("reading spec: %w", err)
 	}
 
-	// Step 2: Parse and extract operations
-	fmt.Println("Parsing spec...")
-	spec, err := codegen.Parse(specData)
+	// Step 2: Sanitize spec (fixes Swagger 2.0 required:bool quirk)
+	sanitizedSpec, err := codegen.SanitizeSpec(specData)
 	if err != nil {
-		return fmt.Errorf("parsing spec: %w", err)
+		return fmt.Errorf("sanitizing spec: %w", err)
 	}
-	fmt.Printf("  %d active operations (deprecated filtered)\n", len(spec.Operations))
 
-	// Step 3: Extract scopes
-	scopes := codegen.ExtractScopes(spec)
-	fmt.Printf("  %d unique OAuth scopes\n", len(scopes))
-
-	// Step 4: Generate Spotify client (oapi-codegen)
+	// Step 3: Generate Spotify client (oapi-codegen)
 	fmt.Println("Generating Spotify client...")
 	if err := codegen.GenerateFromSpec(specData, oapiConfig); err != nil {
 		return fmt.Errorf("generating client: %w", err)
@@ -93,12 +87,39 @@ func run() error {
 	fmt.Printf("  %s\n", oapiConfig.ClientOutput)
 	fmt.Printf("  %s\n", oapiConfig.TypesOutput)
 
-	// Step 5: Generate MCP tool definitions
-	fmt.Println("Generating MCP tools...")
-	if err := codegen.GenerateToolsFile(spec.Operations, "tools", spec.ServerURL, toolsOutput); err != nil {
-		return fmt.Errorf("generating tools: %w", err)
+	// Step 4: AST inspect generated files
+	fmt.Println("Inspecting generated client types...")
+	clientSrc, err := os.ReadFile(oapiConfig.ClientOutput)
+	if err != nil {
+		return fmt.Errorf("reading client file: %w", err)
 	}
-	fmt.Printf("  %s\n", toolsOutput)
+	typesSrc, err := os.ReadFile(oapiConfig.TypesOutput)
+	if err != nil {
+		return fmt.Errorf("reading types file: %w", err)
+	}
+	inspectResult, err := codegen.Inspect(clientSrc, typesSrc)
+	if err != nil {
+		return fmt.Errorf("inspecting client types: %w", err)
+	}
+	fmt.Printf("  %d methods, %d structs\n", len(inspectResult.Methods), len(inspectResult.Structs))
+
+	// Step 5: Extract metadata from sanitized spec
+	fmt.Println("Extracting metadata from spec...")
+	metaResult, err := codegen.ExtractMetadata(sanitizedSpec)
+	if err != nil {
+		return fmt.Errorf("extracting metadata: %w", err)
+	}
+	fmt.Printf("  %d operations\n", len(metaResult.Operations))
+
+	// Step 5: Merge and generate tool files
+	fmt.Println("Generating MCP tool files...")
+	tools := codegen.MergeToolData(inspectResult, metaResult)
+	fmt.Printf("  %d tools\n", len(tools))
+
+	if err := codegen.GenerateToolFiles(tools, "tools", metaResult.ServerURL, toolsDir); err != nil {
+		return fmt.Errorf("generating tool files: %w", err)
+	}
+	fmt.Printf("  %d files written to %s\n", len(tools)+1, toolsDir)
 
 	fmt.Println("Done.")
 	return nil
