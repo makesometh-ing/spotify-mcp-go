@@ -170,6 +170,47 @@ func TestSQLiteConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
+func TestSQLiteLoadAll(t *testing.T) {
+	s := newTestSQLiteStore(t)
+	ctx := context.Background()
+
+	err := s.Store(ctx, "client-a", &TokenRecord{
+		SpotifyAccessToken: "sp-a",
+		MCPAccessToken:     "mcp-a",
+		MCPRefreshToken:    "mcp-r-a",
+		MCPTokenExpiry:     time.Now().Add(time.Hour),
+		CreatedAt:          time.Now(),
+	})
+	require.NoError(t, err)
+
+	err = s.Store(ctx, "client-b", &TokenRecord{
+		SpotifyAccessToken: "sp-b",
+		MCPAccessToken:     "mcp-b",
+		MCPRefreshToken:    "mcp-r-b",
+		MCPTokenExpiry:     time.Now().Add(time.Hour),
+		CreatedAt:          time.Now(),
+	})
+	require.NoError(t, err)
+
+	records, err := s.LoadAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+
+	assert.Equal(t, "sp-a", records["client-a"].SpotifyAccessToken)
+	assert.Equal(t, "mcp-a", records["client-a"].MCPAccessToken)
+	assert.Equal(t, "sp-b", records["client-b"].SpotifyAccessToken)
+	assert.Equal(t, "mcp-b", records["client-b"].MCPAccessToken)
+}
+
+func TestSQLiteLoadAllEmpty(t *testing.T) {
+	s := newTestSQLiteStore(t)
+	ctx := context.Background()
+
+	records, err := s.LoadAll(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, records)
+}
+
 func TestSQLiteUpsert(t *testing.T) {
 	s := newTestSQLiteStore(t)
 	ctx := context.Background()

@@ -64,6 +64,14 @@ func (m *mockTokenStore) Delete(ctx context.Context, clientID string) error {
 	return nil
 }
 
+func (m *mockTokenStore) LoadAll(ctx context.Context) (map[string]*TokenRecord, error) {
+	result := make(map[string]*TokenRecord, len(m.records))
+	for k, v := range m.records {
+		result[k] = v
+	}
+	return result, nil
+}
+
 func TestLoggingTokenStoreLogsOperations(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 	logger := zap.New(core).Sugar()

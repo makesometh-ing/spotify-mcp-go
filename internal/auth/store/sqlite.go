@@ -145,6 +145,45 @@ func (s *SQLiteTokenStore) Delete(_ context.Context, clientID string) error {
 	return err
 }
 
+func (s *SQLiteTokenStore) LoadAll(_ context.Context) (map[string]*TokenRecord, error) {
+	rows, err := s.db.Query(`SELECT client_id,
+		spotify_access_token, spotify_refresh_token, spotify_token_expiry,
+		mcp_access_token, mcp_refresh_token, mcp_token_expiry, created_at,
+		redirect_uris, grant_types, response_types, token_endpoint_auth_method, client_name
+		FROM tokens`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make(map[string]*TokenRecord)
+	for rows.Next() {
+		var (
+			clientID                                   string
+			spotifyExpiry, mcpExpiry, createdAt         string
+			redirectURIs, grantTypes, responseTypes     string
+			r                                          TokenRecord
+		)
+		if err := rows.Scan(
+			&clientID,
+			&r.SpotifyAccessToken, &r.SpotifyRefreshToken, &spotifyExpiry,
+			&r.MCPAccessToken, &r.MCPRefreshToken, &mcpExpiry, &createdAt,
+			&redirectURIs, &grantTypes, &responseTypes,
+			&r.TokenEndpointAuthMethod, &r.ClientName,
+		); err != nil {
+			return nil, err
+		}
+		r.SpotifyTokenExpiry, _ = time.Parse(time.RFC3339, spotifyExpiry)
+		r.MCPTokenExpiry, _ = time.Parse(time.RFC3339, mcpExpiry)
+		r.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		_ = json.Unmarshal([]byte(redirectURIs), &r.RedirectURIs)
+		_ = json.Unmarshal([]byte(grantTypes), &r.GrantTypes)
+		_ = json.Unmarshal([]byte(responseTypes), &r.ResponseTypes)
+		records[clientID] = &r
+	}
+	return records, rows.Err()
+}
+
 // CleanupExpired removes token records older than ttl and returns the count removed.
 func (s *SQLiteTokenStore) CleanupExpired(_ context.Context, ttl time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-ttl).UTC().Format(time.RFC3339)

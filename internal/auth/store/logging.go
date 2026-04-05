@@ -38,3 +38,9 @@ func (s *LoggingTokenStore) Delete(ctx context.Context, clientID string) error {
 	s.logger.Debugw("token store: delete", "client_id", clientID, "error", err)
 	return err
 }
+
+func (s *LoggingTokenStore) LoadAll(ctx context.Context) (map[string]*TokenRecord, error) {
+	records, err := s.inner.LoadAll(ctx)
+	s.logger.Debugw("token store: load_all", "count", len(records), "error", err)
+	return records, err
+}
