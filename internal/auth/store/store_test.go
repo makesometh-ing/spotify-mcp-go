@@ -109,6 +109,27 @@ func TestLoggingTokenStoreImplementsInterface(t *testing.T) {
 	var _ TokenStore = &LoggingTokenStore{}
 }
 
+func TestLoggingTokenStoreLogsLoadAll(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	logger := zap.New(core).Sugar()
+
+	inner := NewInMemoryTokenStore()
+	s := NewLoggingTokenStore(inner, logger)
+	ctx := context.Background()
+
+	_ = s.Store(ctx, "c1", &TokenRecord{SpotifyAccessToken: "tok"})
+
+	records, err := s.LoadAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	messages := make([]string, 0, logs.Len())
+	for _, entry := range logs.All() {
+		messages = append(messages, entry.Message)
+	}
+	assert.Contains(t, messages, "token store: load_all")
+}
+
 func TestMockTokenStoreRoundTrip(t *testing.T) {
 	store := &mockTokenStore{records: make(map[string]*TokenRecord)}
 	ctx := context.Background()

@@ -95,6 +95,31 @@ func TestInMemoryConcurrentWrites(t *testing.T) {
 	}
 }
 
+func TestInMemoryLoadAll(t *testing.T) {
+	s := NewInMemoryTokenStore()
+	ctx := context.Background()
+
+	err := s.Store(ctx, "client-a", newTestRecord("a"))
+	require.NoError(t, err)
+	err = s.Store(ctx, "client-b", newTestRecord("b"))
+	require.NoError(t, err)
+
+	records, err := s.LoadAll(ctx)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	assert.Equal(t, "sp_access_a", records["client-a"].SpotifyAccessToken)
+	assert.Equal(t, "sp_access_b", records["client-b"].SpotifyAccessToken)
+}
+
+func TestInMemoryLoadAllEmpty(t *testing.T) {
+	s := NewInMemoryTokenStore()
+	ctx := context.Background()
+
+	records, err := s.LoadAll(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, records)
+}
+
 func TestInMemoryStoreOverwrites(t *testing.T) {
 	s := NewInMemoryTokenStore()
 	ctx := context.Background()
