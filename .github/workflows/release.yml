@@ -82,7 +82,7 @@ jobs:
     steps:
       - name: Compute checksums and update Homebrew formula
         env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
