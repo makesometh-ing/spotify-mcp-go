@@ -44,13 +44,18 @@ Three artifacts from one repo:
 | `SPOTIFY_MCP_TOKEN_DB` | No | `~/.config/spotify-mcp-go/auth/tokens.db` | SQLite token storage path |
 | `SPOTIFY_MCP_BASE_URL` | No | `http://127.0.0.1:<port>` | Public base URL for hosting behind a reverse proxy or tunnel. When set, all OAuth metadata, callback redirects, and startup output use this URL. |
 
-The server reads from a `.env` file in the working directory if present, with environment variables taking precedence. A `.env.example` file is included in the repo.
+The server reads from a `.env` file in the working directory if present. Configuration precedence: CLI flags > environment variables > `.env` file > defaults. A `.env.example` file is included in the repo.
 
 ### CLI Flags
 
-| Flag | Default | Description |
-|---|---|---|
-| `--debug` | `false` | Enable debug logging. When off, the server is silent (no log output). When on, structured logs are emitted to stderr. |
+| Flag | Env Fallback | Default | Description |
+|---|---|---|---|
+| `--spotify-client-id` | `SPOTIFY_CLIENT_ID` | (required) | Spotify app client ID |
+| `--spotify-client-secret` | `SPOTIFY_CLIENT_SECRET` | (required) | Spotify app client secret |
+| `--port` | `SPOTIFY_MCP_PORT` | `8080` | HTTP server port |
+| `--token-db` | `SPOTIFY_MCP_TOKEN_DB` | `~/.config/spotify-mcp-go/auth/tokens.db` | SQLite token storage path |
+| `--base-url` | `SPOTIFY_MCP_BASE_URL` | `http://127.0.0.1:<port>` | Public base URL for reverse proxy/tunnel |
+| `--debug` | - | `false` | Enable debug logging to stderr |
 
 ### Logging
 
