@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="#quick-start">Quick start</a> &middot;
   <a href="#installation">Install</a> &middot;
   <a href="#setup">Setup</a> &middot;
   <a href="#client-configuration">Connect your client</a> &middot;
@@ -22,6 +23,26 @@
 An MCP server that exposes the Spotify Web API as tools. It handles OAuth so your MCP client (Claude Desktop, Claude Code, Cursor, etc.) can log in via the browser and start making Spotify API calls.
 
 A code generator reads Spotify's OpenAPI spec and produces a typed Go client and MCP tool definitions. This runs weekly in CI, so when Spotify adds or changes endpoints, the tools update automatically.
+
+## Quick start
+
+```bash
+# 1. Install
+brew install makesometh-ing/tap/spotify-mcp-go
+
+# 2. Create a Spotify app at https://developer.spotify.com/dashboard
+#    Set the Redirect URI to http://127.0.0.1:8080/callback
+
+# 3. Configure credentials
+export SPOTIFY_CLIENT_ID=your_client_id
+export SPOTIFY_CLIENT_SECRET=your_client_secret
+
+# 4. Start the server
+spotify-mcp-go
+
+# 5. Connect your MCP client to http://127.0.0.1:8080/mcp
+#    OAuth login happens automatically in the browser on first connect.
+```
 
 ## Installation
 
@@ -75,7 +96,27 @@ SPOTIFY_CLIENT_SECRET=your_client_secret
 spotify-mcp-go
 ```
 
-### Environment variables
+### Configuration
+
+The server reads configuration from three sources, in order of precedence:
+
+1. **CLI flags** (highest)
+2. **Environment variables**
+3. **`.env` file** in the working directory
+4. **Defaults** (lowest)
+
+#### CLI flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--spotify-client-id` | (required) | Spotify app client ID |
+| `--spotify-client-secret` | (required) | Spotify app client secret |
+| `--port` | `8080` | HTTP server port |
+| `--token-db` | `~/.config/spotify-mcp-go/auth/tokens.db` | SQLite token storage path |
+| `--base-url` | `http://127.0.0.1:<port>` | Public base URL (for reverse proxy / tunnel / cloud hosting) |
+| `--debug` | `false` | Enable debug logging to stderr |
+
+#### Environment variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -138,10 +179,39 @@ Add to your MCP configuration:
 }
 ```
 
+### Raycast
+
+Extensions > MCP Servers > Add Server. Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
+
 ### Codex CLI
 
 ```bash
 codex mcp add spotify http://127.0.0.1:8080/mcp
+```
+
+### Using Docker with MCP clients
+
+When running the server via Docker, the MCP endpoint is the same (`http://127.0.0.1:8080/mcp`) as long as you map the port:
+
+```bash
+docker run -p 8080:8080 \
+  -e SPOTIFY_CLIENT_ID=your_client_id \
+  -e SPOTIFY_CLIENT_SECRET=your_client_secret \
+  ghcr.io/makesometh-ing/spotify-mcp-go:latest
+```
+
+Or with a `.env` file:
+
+```bash
+docker run -p 8080:8080 --env-file .env ghcr.io/makesometh-ing/spotify-mcp-go:latest
+```
+
+To persist tokens across container restarts, mount the token database:
+
+```bash
+docker run -p 8080:8080 --env-file .env \
+  -v ~/.config/spotify-mcp-go/auth:/root/.config/spotify-mcp-go/auth \
+  ghcr.io/makesometh-ing/spotify-mcp-go:latest
 ```
 
 ### Other clients

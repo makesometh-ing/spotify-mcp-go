@@ -411,38 +411,57 @@ Users must register a Spotify app at https://developer.spotify.com/dashboard and
 
 The server prints the exact callback URL on startup so the user knows what to register.
 
-### Homebrew (macOS)
+### Installation Methods
+
+**Homebrew (macOS):**
 
 ```bash
 brew install makesometh-ing/tap/spotify-mcp-go
 ```
 
-### Local binary
+The third-party tap at `makesometh-ing/homebrew-tap` is auto-updated on each tagged release.
+
+**Binary download:**
+
+Direct download from [GitHub Releases](https://github.com/makesometh-ing/spotify-mcp-go/releases). Available for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64.
+
+**Container:**
+
+```bash
+docker pull ghcr.io/makesometh-ing/spotify-mcp-go:latest
+docker run -p 8080:8080 -e SPOTIFY_CLIENT_ID=... -e SPOTIFY_CLIENT_SECRET=... ghcr.io/makesometh-ing/spotify-mcp-go:latest
+```
+
+**From source:**
+
+```bash
+go install github.com/makesometh-ing/spotify-mcp-go/cmd/server@latest
+```
+
+### Running
+
+Configuration precedence: CLI flags > environment variables > `.env` file > defaults.
 
 ```bash
 # Option 1: .env file
 cp .env.example .env
 # Edit .env with your Spotify credentials
-make build
-./bin/spotify-mcp-go
+spotify-mcp-go
 
 # Option 2: environment variables
 export SPOTIFY_CLIENT_ID=your_client_id
 export SPOTIFY_CLIENT_SECRET=your_client_secret
-make build
-./bin/spotify-mcp-go
-```
+spotify-mcp-go
 
-### Container (ko)
-
-```bash
-make docker  # builds with ko
-# Run with .env file or pass env vars to the container
+# Option 3: CLI flags
+spotify-mcp-go --spotify-client-id=... --spotify-client-secret=...
 ```
 
 ### MCP Client Configuration
 
-Example for Claude Desktop (`claude_desktop_config.json`):
+Point any MCP client at `http://127.0.0.1:8080/mcp`. The server advertises auth endpoints via RFC 8414 / RFC 9728 discovery. OAuth login happens automatically in the browser on first connect.
+
+**Claude Desktop** (`claude_desktop_config.json`):
 
 ```json
 {
@@ -454,4 +473,30 @@ Example for Claude Desktop (`claude_desktop_config.json`):
 }
 ```
 
-The MCP client discovers auth requirements automatically via the well-known endpoints on the same origin and handles the browser-based Spotify login.
+**Claude Code:**
+
+```bash
+claude mcp add spotify --transport http http://127.0.0.1:8080/mcp
+```
+
+**Cursor:** Settings > MCP Servers > Add Server. Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
+
+**Raycast:** Extensions > MCP Servers > Add Server. Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
+
+**Windsurf:**
+
+```json
+{
+  "mcpServers": {
+    "spotify": {
+      "serverUrl": "http://127.0.0.1:8080/mcp"
+    }
+  }
+}
+```
+
+**Codex CLI:**
+
+```bash
+codex mcp add spotify http://127.0.0.1:8080/mcp
+```
