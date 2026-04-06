@@ -42,3 +42,13 @@ func (s *InMemoryTokenStore) Delete(_ context.Context, clientID string) error {
 	delete(s.records, clientID)
 	return nil
 }
+
+func (s *InMemoryTokenStore) LoadAll(_ context.Context) (map[string]*TokenRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make(map[string]*TokenRecord, len(s.records))
+	for k, v := range s.records {
+		result[k] = v
+	}
+	return result, nil
+}

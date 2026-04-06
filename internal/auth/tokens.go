@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"sync"
 	"time"
+
+	"github.com/makesometh-ing/spotify-mcp-go/internal/auth/store"
 )
 
 // generateRandomHex returns a hex-encoded string of n random bytes.
@@ -110,6 +112,27 @@ func (m *TokenManager) InvalidateRefreshToken(token string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.refreshTokens, token)
+}
+
+// Hydrate populates the in-memory token maps from persisted store records.
+// Non-empty access tokens are loaded with their stored expiry. Non-empty
+// refresh tokens are loaded without expiry (same as freshly issued ones).
+func (m *TokenManager) Hydrate(records map[string]*store.TokenRecord) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for clientID, rec := range records {
+		if rec.MCPAccessToken != "" {
+			m.tokens[rec.MCPAccessToken] = issuedToken{
+				clientID: clientID,
+				expiry:   rec.MCPTokenExpiry,
+			}
+		}
+		if rec.MCPRefreshToken != "" {
+			m.refreshTokens[rec.MCPRefreshToken] = issuedToken{
+				clientID: clientID,
+			}
+		}
+	}
 }
 
 // TTL returns the token TTL duration.

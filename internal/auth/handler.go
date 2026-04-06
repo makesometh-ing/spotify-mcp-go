@@ -112,6 +112,15 @@ func NewHandler(cfg HandlerConfig) *Handler {
 	if logger == nil {
 		logger = zap.NewNop().Sugar()
 	}
+
+	tm := NewTokenManager(ttl)
+
+	// Hydrate TokenManager from persisted records so MCP tokens
+	// survive server restarts.
+	if records, err := cfg.Store.LoadAll(context.Background()); err == nil {
+		tm.Hydrate(records)
+	}
+
 	return &Handler{
 		spotifyClientID: cfg.SpotifyClientID,
 		spotifyScopes:   cfg.SpotifyScopes,
@@ -123,7 +132,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 			TokenEndpoint: endpoint,
 		},
 		pendingCodes: make(map[string]PendingCode),
-		tokenManager: NewTokenManager(ttl),
+		tokenManager: tm,
 		logger:       logger.Named("auth"),
 	}
 }

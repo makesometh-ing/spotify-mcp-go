@@ -29,4 +29,5 @@ type TokenStore interface {
 	Store(ctx context.Context, clientID string, tokens *TokenRecord) error
 	Load(ctx context.Context, clientID string) (*TokenRecord, error)
 	Delete(ctx context.Context, clientID string) error
+	LoadAll(ctx context.Context) (map[string]*TokenRecord, error)
 }

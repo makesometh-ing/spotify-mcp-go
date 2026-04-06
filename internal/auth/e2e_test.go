@@ -173,3 +173,140 @@ func TestE2EOAuthFlow(t *testing.T) {
 	oldResp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, oldResp.StatusCode, "old rotated token should be rejected")
 }
+
+func TestE2ETokensSurviveRestart(t *testing.T) {
+	// --- Setup: mock Spotify + first Handler instance ---
+	mock := newMockSpotify(t)
+	tokenStore := store.NewInMemoryTokenStore()
+
+	h1 := NewHandler(HandlerConfig{
+		SpotifyClientID:      "test-spotify-client-id",
+		SpotifyClientSecret:  "test-spotify-client-secret",
+		SpotifyScopes:        []string{"user-read-playback-state"},
+		Store:                tokenStore,
+		SpotifyTokenEndpoint: mock.Server.URL,
+		MCPTokenTTL:          time.Hour,
+	})
+
+	recorder1 := &recordingHandler{}
+	mux1 := http.NewServeMux()
+	h1.RegisterRoutes(mux1)
+	mux1.Handle("POST /mcp", h1.AuthMiddleware(recorder1))
+	ts1 := httptest.NewServer(mux1)
+	h1.SetBaseURL(ts1.URL)
+
+	noFollow := noRedirectClient()
+
+	// --- Register and complete full OAuth flow on first instance ---
+	regReq, _ := json.Marshal(map[string]any{
+		"redirect_uris": []string{"http://test-client/callback"},
+		"client_name":   "TestClient",
+	})
+	resp, err := http.Post(ts1.URL+"/register", "application/json", bytes.NewReader(regReq))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var regBody map[string]any
+	json.NewDecoder(resp.Body).Decode(&regBody)
+	clientID := regBody["client_id"].(string)
+
+	codeVerifier, err := GenerateCodeVerifier()
+	require.NoError(t, err)
+	challenge := CodeChallenge(codeVerifier)
+
+	authResp, err := noFollow.Get(ts1.URL + "/authorize?" + url.Values{
+		"client_id":             {clientID},
+		"redirect_uri":          {"http://test-client/callback"},
+		"code_challenge":        {challenge},
+		"code_challenge_method": {"S256"},
+		"response_type":         {"code"},
+	}.Encode())
+	require.NoError(t, err)
+	defer authResp.Body.Close()
+
+	spotifyRedirect, _ := url.Parse(authResp.Header.Get("Location"))
+	state := spotifyRedirect.Query().Get("state")
+
+	cbResp, err := noFollow.Get(ts1.URL + "/callback?" + url.Values{
+		"code":  {"spotify-auth-code"},
+		"state": {state},
+	}.Encode())
+	require.NoError(t, err)
+	defer cbResp.Body.Close()
+
+	clientRedirect, _ := url.Parse(cbResp.Header.Get("Location"))
+	mcpCode := clientRedirect.Query().Get("code")
+
+	tokenResp, err := http.PostForm(ts1.URL+"/token", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {mcpCode},
+		"code_verifier": {codeVerifier},
+	})
+	require.NoError(t, err)
+	defer tokenResp.Body.Close()
+
+	var tokens map[string]any
+	json.NewDecoder(tokenResp.Body).Decode(&tokens)
+	accessToken := tokens["access_token"].(string)
+	refreshToken := tokens["refresh_token"].(string)
+
+	// Verify token works on first instance
+	req, _ := http.NewRequest("POST", ts1.URL+"/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	mcpResp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	mcpResp.Body.Close()
+	require.Equal(t, http.StatusOK, mcpResp.StatusCode)
+
+	// --- "Restart": shut down first server, create NEW Handler with SAME store ---
+	ts1.Close()
+
+	h2 := NewHandler(HandlerConfig{
+		SpotifyClientID:      "test-spotify-client-id",
+		SpotifyClientSecret:  "test-spotify-client-secret",
+		SpotifyScopes:        []string{"user-read-playback-state"},
+		Store:                tokenStore,
+		SpotifyTokenEndpoint: mock.Server.URL,
+		MCPTokenTTL:          time.Hour,
+	})
+
+	recorder2 := &recordingHandler{}
+	mux2 := http.NewServeMux()
+	h2.RegisterRoutes(mux2)
+	mux2.Handle("POST /mcp", h2.AuthMiddleware(recorder2))
+	ts2 := httptest.NewServer(mux2)
+	defer ts2.Close()
+	h2.SetBaseURL(ts2.URL)
+
+	// --- Old access token should work on new instance ---
+	req2, _ := http.NewRequest("POST", ts2.URL+"/mcp", nil)
+	req2.Header.Set("Authorization", "Bearer "+accessToken)
+	mcpResp2, err := http.DefaultClient.Do(req2)
+	require.NoError(t, err)
+	mcpResp2.Body.Close()
+	assert.Equal(t, http.StatusOK, mcpResp2.StatusCode, "access token should survive restart")
+	assert.Equal(t, clientID, recorder2.receivedClientID)
+
+	// --- Old refresh token should produce new tokens on new instance ---
+	refreshResp, err := http.PostForm(ts2.URL+"/token", url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+	})
+	require.NoError(t, err)
+	defer refreshResp.Body.Close()
+	assert.Equal(t, http.StatusOK, refreshResp.StatusCode, "refresh token should survive restart")
+
+	var newTokens map[string]any
+	json.NewDecoder(refreshResp.Body).Decode(&newTokens)
+	newAccessToken := newTokens["access_token"].(string)
+	require.NotEmpty(t, newAccessToken)
+
+	// New access token should also work
+	req3, _ := http.NewRequest("POST", ts2.URL+"/mcp", nil)
+	req3.Header.Set("Authorization", "Bearer "+newAccessToken)
+	mcpResp3, err := http.DefaultClient.Do(req3)
+	require.NoError(t, err)
+	mcpResp3.Body.Close()
+	assert.Equal(t, http.StatusOK, mcpResp3.StatusCode)
+}
