@@ -206,12 +206,18 @@ Or with a `.env` file:
 docker run -p 8080:8080 --env-file .env ghcr.io/makesometh-ing/spotify-mcp-go:latest
 ```
 
-To persist tokens across container restarts, mount the token database:
+**Note:** Without a volume mount, tokens are ephemeral and lost when the container stops. Mount the token database directory to persist tokens across restarts:
 
 ```bash
 docker run -p 8080:8080 --env-file .env \
-  -v ~/.config/spotify-mcp-go/auth:/root/.config/spotify-mcp-go/auth \
+  -v ~/.config/spotify-mcp-go/auth:/home/nonroot/.config/spotify-mcp-go/auth \
   ghcr.io/makesometh-ing/spotify-mcp-go:latest
+```
+
+Or use the included `docker-compose.yml`:
+
+```bash
+docker compose up
 ```
 
 ### Other clients
