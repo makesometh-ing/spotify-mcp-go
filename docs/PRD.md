@@ -482,7 +482,7 @@ claude mcp add spotify --transport http http://127.0.0.1:8080/mcp
 
 **Cursor:** Settings > MCP Servers > Add Server. Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
 
-**Raycast:** Extensions > MCP Servers > Add Server. Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
+**Raycast:** Open the command palette and run "Install Server". Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
 
 **Windsurf:**
 

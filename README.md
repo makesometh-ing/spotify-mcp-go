@@ -181,7 +181,7 @@ Add to your MCP configuration:
 
 ### Raycast
 
-Extensions > MCP Servers > Add Server. Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
+Open the command palette and run "Install Server". Name: `spotify`, URL: `http://127.0.0.1:8080/mcp`.
 
 ### Codex CLI
 
