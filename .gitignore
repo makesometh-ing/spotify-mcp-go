@@ -29,5 +29,9 @@ mise.toml
 # Database
 *.db
 
+# Docs (keep only PRD)
+docs/*
+!docs/PRD.md
+
 # Build
 dist/

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/app_logo.png" alt="spotify-mcp-go" width="180" />
+  <img src="assets/app_logo.png" alt="spotify-mcp-go" width="180" />
 </p>
 
 <h1 align="center">spotify-mcp-go</h1>
