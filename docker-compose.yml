@@ -1,0 +1,9 @@
+services:
+  spotify-mcp:
+    image: ghcr.io/makesometh-ing/spotify-mcp-go:latest
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ~/.config/spotify-mcp-go/auth:/home/nonroot/.config/spotify-mcp-go/auth

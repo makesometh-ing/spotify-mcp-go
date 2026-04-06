@@ -264,6 +264,7 @@ The codegen reads all of this, filters by `deprecated`, and feeds the result to 
 spotify-mcp-go/
 ├── .env.example                 # Example environment variables
 ├── .ko.yaml                     # ko build config
+├── docker-compose.yml           # Docker Compose example with env and volume mount
 ├── oapi-codegen.yaml            # oapi-codegen config for Spotify client generation
 ├── cmd/
 │   ├── server/                  # MCP server entrypoint
