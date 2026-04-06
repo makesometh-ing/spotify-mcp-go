@@ -81,7 +81,7 @@ func TestServerStartupOutputDashboardInstructions(t *testing.T) {
 func TestServerStartupMissingClientID(t *testing.T) {
 	t.Setenv("SPOTIFY_CLIENT_ID", "")
 	t.Setenv("SPOTIFY_CLIENT_SECRET", "test-secret")
-	_, err := loadConfig("")
+	_, err := loadConfig("", &flagOverrides{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SPOTIFY_CLIENT_ID")
 }
@@ -89,7 +89,7 @@ func TestServerStartupMissingClientID(t *testing.T) {
 func TestServerStartupMissingClientSecret(t *testing.T) {
 	t.Setenv("SPOTIFY_CLIENT_ID", "test-id")
 	t.Setenv("SPOTIFY_CLIENT_SECRET", "")
-	_, err := loadConfig("")
+	_, err := loadConfig("", &flagOverrides{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SPOTIFY_CLIENT_SECRET")
 }
@@ -103,14 +103,14 @@ func TestServerStartupEnvFile(t *testing.T) {
 	err := os.WriteFile(envFile, []byte("SPOTIFY_CLIENT_ID=from-file\nSPOTIFY_CLIENT_SECRET=secret-from-file\n"), 0644)
 	require.NoError(t, err)
 
-	cfg, err := loadConfig(envFile)
+	cfg, err := loadConfig(envFile, &flagOverrides{})
 	require.NoError(t, err)
 	assert.Equal(t, "from-file", cfg.SpotifyClientID)
 	assert.Equal(t, "secret-from-file", cfg.SpotifyClientSecret)
 
 	// Env vars take precedence over .env file
 	t.Setenv("SPOTIFY_CLIENT_ID", "from-env")
-	cfg, err = loadConfig(envFile)
+	cfg, err = loadConfig(envFile, &flagOverrides{})
 	require.NoError(t, err)
 	assert.Equal(t, "from-env", cfg.SpotifyClientID)
 }
@@ -164,7 +164,7 @@ func TestBaseURLConfigDefault(t *testing.T) {
 	t.Setenv("SPOTIFY_CLIENT_SECRET", "test-secret")
 	t.Setenv("SPOTIFY_MCP_BASE_URL", "")
 
-	cfg, err := loadConfig("")
+	cfg, err := loadConfig("", &flagOverrides{})
 	require.NoError(t, err)
 	assert.Empty(t, cfg.BaseURL, "base URL should be empty when not configured")
 }
@@ -174,7 +174,7 @@ func TestBaseURLConfigSet(t *testing.T) {
 	t.Setenv("SPOTIFY_CLIENT_SECRET", "test-secret")
 	t.Setenv("SPOTIFY_MCP_BASE_URL", "https://spotify-mcp.example.com")
 
-	cfg, err := loadConfig("")
+	cfg, err := loadConfig("", &flagOverrides{})
 	require.NoError(t, err)
 	assert.Equal(t, "https://spotify-mcp.example.com", cfg.BaseURL)
 }
@@ -261,6 +261,74 @@ func TestBaseURLStartupOutputDefault(t *testing.T) {
 	assert.Contains(t, output, "http://127.0.0.1:8080/callback")
 }
 
+func TestFlagsOverrideEnvVars(t *testing.T) {
+	t.Setenv("SPOTIFY_CLIENT_ID", "from-env")
+	t.Setenv("SPOTIFY_CLIENT_SECRET", "secret-from-env")
+	t.Setenv("SPOTIFY_MCP_PORT", "9090")
+	t.Setenv("SPOTIFY_MCP_TOKEN_DB", "/tmp/env-tokens.db")
+	t.Setenv("SPOTIFY_MCP_BASE_URL", "https://env.example.com")
+
+	flags := &flagOverrides{
+		SpotifyClientID:     "from-flag",
+		SpotifyClientSecret: "secret-from-flag",
+		Port:                "7070",
+		TokenDBPath:         "/tmp/flag-tokens.db",
+		BaseURL:             "https://flag.example.com",
+	}
+
+	cfg, err := loadConfig("", flags)
+	require.NoError(t, err)
+	assert.Equal(t, "from-flag", cfg.SpotifyClientID)
+	assert.Equal(t, "secret-from-flag", cfg.SpotifyClientSecret)
+	assert.Equal(t, "7070", cfg.Port)
+	assert.Equal(t, "/tmp/flag-tokens.db", cfg.TokenDBPath)
+	assert.Equal(t, "https://flag.example.com", cfg.BaseURL)
+}
+
+func TestEnvVarsWorkWhenFlagsEmpty(t *testing.T) {
+	t.Setenv("SPOTIFY_CLIENT_ID", "from-env")
+	t.Setenv("SPOTIFY_CLIENT_SECRET", "secret-from-env")
+	t.Setenv("SPOTIFY_MCP_PORT", "9090")
+
+	flags := &flagOverrides{} // all empty
+
+	cfg, err := loadConfig("", flags)
+	require.NoError(t, err)
+	assert.Equal(t, "from-env", cfg.SpotifyClientID)
+	assert.Equal(t, "secret-from-env", cfg.SpotifyClientSecret)
+	assert.Equal(t, "9090", cfg.Port)
+}
+
+func TestFlagsOverrideEnvFile(t *testing.T) {
+	t.Setenv("SPOTIFY_CLIENT_ID", "")
+	t.Setenv("SPOTIFY_CLIENT_SECRET", "")
+
+	envFile := filepath.Join(t.TempDir(), ".env")
+	err := os.WriteFile(envFile, []byte("SPOTIFY_CLIENT_ID=from-file\nSPOTIFY_CLIENT_SECRET=secret-from-file\n"), 0644)
+	require.NoError(t, err)
+
+	flags := &flagOverrides{
+		SpotifyClientID:     "from-flag",
+		SpotifyClientSecret: "secret-from-flag",
+	}
+
+	cfg, err := loadConfig(envFile, flags)
+	require.NoError(t, err)
+	assert.Equal(t, "from-flag", cfg.SpotifyClientID)
+	assert.Equal(t, "secret-from-flag", cfg.SpotifyClientSecret)
+}
+
+func TestMissingCredentialsFromAllSources(t *testing.T) {
+	t.Setenv("SPOTIFY_CLIENT_ID", "")
+	t.Setenv("SPOTIFY_CLIENT_SECRET", "")
+
+	flags := &flagOverrides{}
+
+	_, err := loadConfig("", flags)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SPOTIFY_CLIENT_ID")
+}
+
 func TestSpotifyAPIBaseURLDefault(t *testing.T) {
 	assert.Equal(t, "https://api.spotify.com/v1", tools.ServerURL)
 }
@@ -271,13 +339,13 @@ func TestServerStartupTokenDBOverride(t *testing.T) {
 
 	// Default path
 	t.Setenv("SPOTIFY_MCP_TOKEN_DB", "")
-	cfg, err := loadConfig("")
+	cfg, err := loadConfig("", &flagOverrides{})
 	require.NoError(t, err)
 	assert.Contains(t, cfg.TokenDBPath, "tokens.db")
 
 	// Custom path
 	t.Setenv("SPOTIFY_MCP_TOKEN_DB", "/tmp/custom-tokens.db")
-	cfg, err = loadConfig("")
+	cfg, err = loadConfig("", &flagOverrides{})
 	require.NoError(t, err)
 	assert.Equal(t, "/tmp/custom-tokens.db", cfg.TokenDBPath)
 }

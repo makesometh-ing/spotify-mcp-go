@@ -29,9 +29,19 @@ type serverConfig struct {
 	SpotifyAPIBaseURL    string // override for testing; empty = tools.ServerURL
 }
 
-// loadConfig reads configuration from environment variables and an optional .env file.
-// Environment variables take precedence over .env file values.
-func loadConfig(envFilePath string) (*serverConfig, error) {
+// flagOverrides holds CLI flag values. Non-empty values take precedence
+// over environment variables and .env file values.
+type flagOverrides struct {
+	SpotifyClientID     string
+	SpotifyClientSecret string
+	Port                string
+	TokenDBPath         string
+	BaseURL             string
+}
+
+// loadConfig reads configuration from CLI flags, environment variables, and an
+// optional .env file. Precedence: flags > env vars > .env file > defaults.
+func loadConfig(envFilePath string, flags *flagOverrides) (*serverConfig, error) {
 	envMap := make(map[string]string)
 	if envFilePath != "" {
 		m, err := readEnvFile(envFilePath)
@@ -43,7 +53,10 @@ func loadConfig(envFilePath string) (*serverConfig, error) {
 		}
 	}
 
-	get := func(key, defaultValue string) string {
+	get := func(flagVal, key, defaultValue string) string {
+		if flagVal != "" {
+			return flagVal
+		}
 		if v := os.Getenv(key); v != "" {
 			return v
 		}
@@ -54,11 +67,11 @@ func loadConfig(envFilePath string) (*serverConfig, error) {
 	}
 
 	cfg := &serverConfig{
-		Port:                get("SPOTIFY_MCP_PORT", "8080"),
-		SpotifyClientID:     get("SPOTIFY_CLIENT_ID", ""),
-		SpotifyClientSecret: get("SPOTIFY_CLIENT_SECRET", ""),
-		TokenDBPath:         get("SPOTIFY_MCP_TOKEN_DB", "~/.config/spotify-mcp-go/auth/tokens.db"),
-		BaseURL:             get("SPOTIFY_MCP_BASE_URL", ""),
+		Port:                get(flags.Port, "SPOTIFY_MCP_PORT", "8080"),
+		SpotifyClientID:     get(flags.SpotifyClientID, "SPOTIFY_CLIENT_ID", ""),
+		SpotifyClientSecret: get(flags.SpotifyClientSecret, "SPOTIFY_CLIENT_SECRET", ""),
+		TokenDBPath:         get(flags.TokenDBPath, "SPOTIFY_MCP_TOKEN_DB", "~/.config/spotify-mcp-go/auth/tokens.db"),
+		BaseURL:             get(flags.BaseURL, "SPOTIFY_MCP_BASE_URL", ""),
 	}
 
 	if cfg.SpotifyClientID == "" {
