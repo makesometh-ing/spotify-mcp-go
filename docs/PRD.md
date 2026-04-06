@@ -178,8 +178,11 @@ type TokenStore interface {
     Store(ctx context.Context, clientID string, tokens *TokenRecord) error
     Load(ctx context.Context, clientID string) (*TokenRecord, error)
     Delete(ctx context.Context, clientID string) error
+    LoadAll(ctx context.Context) (map[string]*TokenRecord, error)
 }
 ```
+
+On startup, the Handler calls `LoadAll` to hydrate the in-memory `TokenManager` with persisted MCP access and refresh tokens. This ensures MCP tokens survive server restarts without requiring clients to re-authenticate with Spotify.
 
 Ships with two implementations:
 
