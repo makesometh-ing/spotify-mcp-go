@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.BOT_TOKEN }}
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -28,20 +31,21 @@ jobs:
         run: |
           git diff --quiet && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Create PR
+      - name: Create PR and enable auto-merge
         if: steps.diff.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: |
           BRANCH="codegen/update-$(date +%Y%m%d)"
-          git checkout -b "$BRANCH"
+          git checkout -B "$BRANCH"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "chore(codegen): update generated files from Spotify OpenAPI spec"
-          git push origin "$BRANCH"
+          git push --force-with-lease origin "$BRANCH"
           gh pr create \
             --title "chore(codegen): update generated files" \
             --body "Automated PR from weekly codegen cron. Review the generated file diffs." \
             --base main \
             --head "$BRANCH"
+          gh pr merge "$BRANCH" --auto --squash --delete-branch
