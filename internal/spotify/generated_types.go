@@ -2468,6 +2468,9 @@ type PlaylistUserObjectType string
 
 // PrivateUserObject defines model for PrivateUserObject.
 type PrivateUserObject struct {
+	// AccountId A public, immutable, pseudoanonymous identifier for the user's account. Use this field for account linking rather than the `id` field, as it is stable and will not change over the lifetime of the account.
+	AccountId *string `json:"account_id,omitempty"`
+
 	// Country The country of the user, as set in the user's account profile. An [ISO 3166-1 alpha-2 country code](http://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). _This field is only available when the current user has granted access to the [user-read-private](/documentation/web-api/concepts/scopes/#list-of-scopes) scope._
 	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Country *string `json:"country,omitempty"`
@@ -2493,7 +2496,7 @@ type PrivateUserObject struct {
 	// Href A link to the Web API endpoint for this user.
 	Href *string `json:"href,omitempty"`
 
-	// Id The [Spotify user ID](/documentation/web-api/concepts/spotify-uris-ids) for the user.
+	// Id The [Spotify user ID](/documentation/web-api/concepts/spotify-uris-ids) for the user. Do not use this field for account linking — use `account_id` instead, which is immutable.
 	Id *string `json:"id,omitempty"`
 
 	// Images The user's profile image.
