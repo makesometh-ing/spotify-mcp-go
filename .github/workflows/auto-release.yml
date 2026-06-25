@@ -1,0 +1,50 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "internal/spotify/generated_*.go"
+      - "internal/tools/generated_*.go"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Compute the next version but do not push the tag"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.BOT_TOKEN }}
+          fetch-depth: 0
+
+      - name: Compute next CalVer and push tag
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          YM=$(date -u +%Y.%m)
+          LATEST=$(git tag -l "v${YM}.*" | sed -nE "s/^v${YM}\.([0-9]+)\$/\1/p" | sort -n | tail -1)
+          if [ -z "${LATEST:-}" ]; then PATCH=0; else PATCH=$((LATEST + 1)); fi
+          TAG="v${YM}.${PATCH}"
+          echo "Next release tag: $TAG"
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            echo "Dry run: not pushing $TAG"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
